@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: gagyelol-spring
+    ports:
+      - "8080:8080"
+    volumes:
+      # 내 컴퓨터의 현재 폴더(./)를 컨테이너 내부의 /app 폴더와 동기화
+      - ./:/app
