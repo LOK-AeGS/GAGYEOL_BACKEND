@@ -1,11 +1,38 @@
 version: '3.8'
 
 services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: gagyelol-postgres
+    environment:
+      POSTGRES_DB: gagyelol
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: gagyelol
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d gagyelol"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   app:
     build: .
     container_name: gagyelol-spring
     ports:
       - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/gagyelol
+      SPRING_DATASOURCE_USERNAME: admin
+      SPRING_DATASOURCE_PASSWORD: gagyelol
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     volumes:
-      # 내 컴퓨터의 현재 폴더(./)를 컨테이너 내부의 /app 폴더와 동기화
-      - ./:/app
+      - ./uploads:/app/uploads
+
+volumes:
+  pgdata:
