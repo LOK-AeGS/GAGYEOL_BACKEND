@@ -1,0 +1,35 @@
+package GAGYELOL.dto.group;
+
+import lombok.Builder;
+import lombok.Getter;
+
+import java.util.List;
+
+@Getter
+@Builder
+public class GroupResponse {
+    private Long groupId;
+    private String name;
+    private String inviteCode;
+    private String ownerName;
+    private List<RoleSummary> roles;
+    private List<MemberSummary> members;
+
+    @Getter
+    @Builder
+    public static class RoleSummary {
+        private Long roleId;
+        private String roleName;
+        private Integer approvalOrder;
+    }
+
+    @Getter
+    @Builder
+    public static class MemberSummary {
+        private Long userId;
+        private String name;
+        private String email;
+        private String roleName;
+        private Integer approvalOrder;
+    }
+}
