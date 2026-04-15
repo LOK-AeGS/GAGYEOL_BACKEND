@@ -39,13 +39,16 @@ public class FormService {
     private final EmbeddingService embeddingService;
     private final PolicyChunkVectorStore vectorStore;
     private final ObjectMapper objectMapper;
+    private final GAGYELOL.repository.UserGroupRepository groupRepository;
 
     @Value("${file.upload.form-dir:./uploads/forms}")
     private String uploadDir;
 
-    public FormUploadResponse upload(MultipartFile file, String formName, Long userId, String paymentType, Long policyId) {
+    public FormUploadResponse upload(MultipartFile file, String formName, Long userId, String paymentType, Long policyId, Long groupId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+        GAGYELOL.entity.UserGroup group = groupId != null
+                ? groupRepository.findById(groupId).orElse(null) : null;
 
         // 1. 파일 저장
         String filePath = saveFile(file);
@@ -81,6 +84,7 @@ public class FormService {
         String normalizedType = normalizePaymentType(paymentType);
         Form form = formRepository.save(Form.builder()
                 .user(user)
+                .group(group)
                 .formName(formName)
                 .filePath(filePath)
                 .description(description)

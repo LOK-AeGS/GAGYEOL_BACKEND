@@ -34,13 +34,16 @@ public class PolicyService {
     private final PdfParserService pdfParserService;
     private final EmbeddingService embeddingService;
     private final PolicyAiService policyAiService;
+    private final GAGYELOL.repository.UserGroupRepository groupRepository;
 
     @Value("${file.upload.policy-dir:./uploads/policies}")
     private String uploadDir;
 
-    public PolicyUploadResponse upload(MultipartFile file, String policyName, Long userId) {
+    public PolicyUploadResponse upload(MultipartFile file, String policyName, Long userId, Long groupId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+        GAGYELOL.entity.UserGroup group = groupId != null
+                ? groupRepository.findById(groupId).orElse(null) : null;
 
         // 1. 파일 저장
         String filePath = saveFile(file);
@@ -49,6 +52,7 @@ public class PolicyService {
         // 2. Policy 메타데이터 저장
         Policy policy = policyRepository.save(Policy.builder()
                 .user(user)
+                .group(group)
                 .policyName(policyName)
                 .filePath(filePath)
                 .build());

@@ -91,7 +91,7 @@ public class EvidenceService {
         // 5. 결제 유형에 맞는 양식지 목록 반환 (사용자가 선택)
         List<Form> forms = group != null
                 ? formRepository.findByGroupAndPaymentTypeIn(group, List.of(paymentType, "BOTH"))
-                : List.of();
+                : formRepository.findByPaymentTypeIn(List.of(paymentType, "BOTH"));
         log.info("양식지 {}개 로드 완료 (결제유형: {})", forms.size(), paymentType);
 
         List<EvidenceAnalysisResponse.FormSummary> formSummaries = forms.stream()

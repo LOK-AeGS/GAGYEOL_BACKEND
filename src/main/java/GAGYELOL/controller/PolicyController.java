@@ -20,9 +20,10 @@ public class PolicyController {
     public ResponseEntity<PolicyUploadResponse> upload(
             @RequestHeader("Authorization") String token,
             @RequestParam("file") MultipartFile file,
-            @RequestParam("policyName") String policyName
+            @RequestParam("policyName") String policyName,
+            @RequestParam(value = "groupId", required = false) Long groupId
     ) {
         Long userId = jwtUtil.extractUserId(token.replace("Bearer ", ""));
-        return ResponseEntity.ok(policyService.upload(file, policyName, userId));
+        return ResponseEntity.ok(policyService.upload(file, policyName, userId, groupId));
     }
 }

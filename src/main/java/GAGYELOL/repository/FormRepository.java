@@ -9,4 +9,5 @@ import java.util.List;
 public interface FormRepository extends JpaRepository<Form, Long> {
     List<Form> findByGroup(UserGroup group);
     List<Form> findByGroupAndPaymentTypeIn(UserGroup group, List<String> paymentTypes);
+    List<Form> findByPaymentTypeIn(List<String> paymentTypes);
 }

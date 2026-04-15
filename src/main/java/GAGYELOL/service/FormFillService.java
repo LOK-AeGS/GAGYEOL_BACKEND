@@ -37,22 +37,46 @@ public class FormFillService {
         try (FileInputStream fis = new FileInputStream(filePath);
              XWPFDocument doc = new XWPFDocument(fis)) {
 
+            log.info("DOCX 채우기 시작 - 전달된 필드: {}", allFields.keySet());
+
             // 테이블에서 필드명 셀 탐색 → 오른쪽 빈 셀에 값 입력
+            // 그룹 레이블(예: "지출인")을 컬럼별로 기억해 "지출인 소속" 형태로 매칭
             for (XWPFTable table : doc.getTables()) {
+                Map<Integer, String> columnGroupLabels = new java.util.HashMap<>();
                 for (XWPFTableRow row : table.getRows()) {
                     List<XWPFTableCell> cells = row.getTableCells();
                     for (int i = 0; i < cells.size(); i++) {
                         String cellText = cells.get(i).getText().trim();
+                        log.info("셀 텍스트: [{}]", cellText);
+                        if (cellText.isEmpty()) continue;
+
+                        // 이 셀이 그룹 레이블인지 확인 (예: "지출인" → "지출인 소속" 같은 필드가 존재)
+                        final String ct = cellText;
+                        boolean isGroupLabel = allFields.keySet().stream()
+                                .anyMatch(f -> f.startsWith(ct + " "));
+                        if (isGroupLabel) {
+                            columnGroupLabels.put(i, cellText);
+                            continue;
+                        }
+
+                        // 왼쪽 컬럼의 그룹 레이블 조합해서 매칭 시도
+                        String groupLabel = columnGroupLabels.getOrDefault(i - 1, "");
+                        String compoundKey = groupLabel.isEmpty() ? cellText : groupLabel + " " + cellText;
+
                         for (Map.Entry<String, String> entry : allFields.entrySet()) {
                             String field = entry.getKey();
                             String value = entry.getValue();
-                            if (cellText.contains(field) && i + 1 < cells.size()) {
+                            boolean matches = field.equals(cellText) || field.equals(compoundKey);
+                            if (matches && i + 1 < cells.size()) {
                                 XWPFTableCell nextCell = cells.get(i + 1);
-                                // 인접 셀이 비어있거나 필드명만 있으면 값 입력
                                 String nextText = nextCell.getText().trim();
-                                if (nextText.isEmpty() || nextText.equals(field)) {
+                                if (nextText.isEmpty()) {
                                     setCellText(nextCell, value);
-                                    log.debug("DOCX 필드 채우기: {} = {}", field, value);
+                                    log.info("DOCX 필드 채우기 완료: {} = {}", field, value);
+                                } else if (nextText.length() <= 2) {
+                                    // "원", "명" 같은 단위 텍스트인 경우 값 앞에 붙여서 채움
+                                    setCellText(nextCell, value + nextText);
+                                    log.info("DOCX 필드 채우기 완료(단위 포함): {} = {}{}", field, value, nextText);
                                 }
                             }
                         }

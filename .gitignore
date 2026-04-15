@@ -44,3 +44,8 @@ uploads/
 test_policy.pdf
 그림1.png
 2025-사무간담회 공유용 ppt.pdf
+
+### Sample documents ###
+*.xlsx
+*.docx
+*.hwp

@@ -22,10 +22,11 @@ public class FormController {
             @RequestParam("file") MultipartFile file,
             @RequestParam("formName") String formName,
             @RequestParam(value = "paymentType", defaultValue = "BOTH") String paymentType,
-            @RequestParam(value = "policyId", required = false) Long policyId
+            @RequestParam(value = "policyId", required = false) Long policyId,
+            @RequestParam(value = "groupId", required = false) Long groupId
     ) {
         Long userId = jwtUtil.extractUserId(token.replace("Bearer ", ""));
-        return ResponseEntity.ok(formService.upload(file, formName, userId, paymentType, policyId));
+        return ResponseEntity.ok(formService.upload(file, formName, userId, paymentType, policyId, groupId));
     }
 
     @PostMapping("/{formId}/reanalyze")
