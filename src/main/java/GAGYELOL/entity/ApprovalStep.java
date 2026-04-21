@@ -29,7 +29,7 @@ public class ApprovalStep {
     @Column(name = "approval_order", nullable = false)
     private Integer approvalOrder;
 
-    // PENDING / APPROVED / REJECTED
+    // PENDING / APPROVED / REJECTED / CANCELED
     @Column(nullable = false)
     private String action;
 
@@ -48,6 +48,12 @@ public class ApprovalStep {
     public void reject(String comment) {
         this.action = "REJECTED";
         this.comment = comment;
+        this.actedAt = LocalDateTime.now();
+    }
+
+    public void cancel() {
+        this.action = "CANCELED";
+        this.comment = "승인자 그룹 탈퇴로 자동 취소";
         this.actedAt = LocalDateTime.now();
     }
 }
