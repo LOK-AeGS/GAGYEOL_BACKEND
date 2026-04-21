@@ -35,42 +35,54 @@ public class ApprovalService {
         User requester = findUser(requesterId);
         UserGroup group = findGroup(req.getGroupId());
 
-        // 요청자의 그룹 내 역할 확인
         GroupMember requesterMember = memberRepository.findByGroupAndUser(group, requester)
                 .orElseThrow(() -> new IllegalArgumentException("해당 그룹의 멤버가 아닙니다."));
         int requesterOrder = requesterMember.getRole().getApprovalOrder();
 
-        // 다음 결재 단계 = 요청자 순서 + 1
-        int nextOrder = requesterOrder + 1;
+        // 요청자보다 높은 결재 단계 역할 목록 (오름차순 정렬 보장)
+        List<GroupRole> higherRoles = roleRepository
+                .findByGroupAndApprovalOrderGreaterThanOrderByApprovalOrderAsc(group, requesterOrder);
 
-        // 해당 그룹에 nextOrder 이상의 역할이 있는지 확인
-        List<GroupRole> higherRoles = roleRepository.findByGroupAndApprovalOrderGreaterThan(group, requesterOrder);
+        // DB 저장 전 사전 검증: 모든 결재 단계에 멤버가 있는지 확인
+        validateApprovalChain(group, higherRoles);
 
-        Evidence evidence = null;
-        if (req.getEvidenceId() != null) {
-            evidence = evidenceRepository.findById(req.getEvidenceId()).orElse(null);
-        }
+        Evidence evidence = req.getEvidenceId() != null
+                ? evidenceRepository.findById(req.getEvidenceId()).orElse(null)
+                : null;
 
         String filledFieldsJson = toJson(req.getFilledFields());
 
-        // 결재요청 생성
-        String status = higherRoles.isEmpty() ? "APPROVED" : "IN_PROGRESS";
+        boolean hasNextStep = !higherRoles.isEmpty();
+        // 다음 단계 order는 실제 역할의 approval_order 사용 (+1 하드코딩 제거)
+        int nextOrder = hasNextStep ? higherRoles.get(0).getApprovalOrder() : requesterOrder;
+
+        String status = hasNextStep ? "IN_PROGRESS" : "APPROVED";
         ApprovalRequest approvalRequest = requestRepository.save(ApprovalRequest.builder()
                 .group(group)
                 .requester(requester)
                 .evidence(evidence)
                 .filledFields(filledFieldsJson)
-                .currentApprovalOrder(higherRoles.isEmpty() ? requesterOrder : nextOrder)
+                .currentApprovalOrder(nextOrder)
                 .status(status)
                 .build());
 
-        // 다음 결재 단계 승인자(전원) 대상으로 PENDING 스텝 생성
-        if (!higherRoles.isEmpty()) {
+        if (hasNextStep) {
             createPendingSteps(approvalRequest, group, nextOrder);
         }
 
         log.info("결재요청 생성 - requestId={}, status={}, nextOrder={}", approvalRequest.getId(), status, nextOrder);
         return toResponse(approvalRequest);
+    }
+
+    private void validateApprovalChain(UserGroup group, List<GroupRole> roles) {
+        for (GroupRole role : roles) {
+            List<GroupMember> members = memberRepository.findByGroupAndRole(group, role);
+            if (members.isEmpty()) {
+                throw new IllegalArgumentException(
+                        String.format("결재 단계 '%s'(순서: %d)에 배정된 멤버가 없습니다. 결재 라인을 확인해주세요.",
+                                role.getRoleName(), role.getApprovalOrder()));
+            }
+        }
     }
 
     public ApprovalResponse approve(Long approverId, Long requestId, ApproveRequest req) {
@@ -97,8 +109,9 @@ public class ApprovalService {
 
         if (allApproved) {
             // 다음 결재 단계 탐색
-            List<GroupRole> nextRoles = roleRepository.findByGroupAndApprovalOrderGreaterThan(
-                    approvalRequest.getGroup(), approvalRequest.getCurrentApprovalOrder());
+            List<GroupRole> nextRoles = roleRepository
+                    .findByGroupAndApprovalOrderGreaterThanOrderByApprovalOrderAsc(
+                            approvalRequest.getGroup(), approvalRequest.getCurrentApprovalOrder());
 
             if (nextRoles.isEmpty()) {
                 // 최종 승인
