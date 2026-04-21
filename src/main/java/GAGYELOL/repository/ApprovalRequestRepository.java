@@ -3,11 +3,20 @@ package GAGYELOL.repository;
 import GAGYELOL.entity.ApprovalRequest;
 import GAGYELOL.entity.User;
 import GAGYELOL.entity.UserGroup;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface ApprovalRequestRepository extends JpaRepository<ApprovalRequest, Long> {
     List<ApprovalRequest> findByGroupOrderByCreatedAtDesc(UserGroup group);
     List<ApprovalRequest> findByRequesterOrderByCreatedAtDesc(User requester);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM ApprovalRequest r WHERE r.id = :id")
+    Optional<ApprovalRequest> findByIdWithLock(@Param("id") Long id);
 }
