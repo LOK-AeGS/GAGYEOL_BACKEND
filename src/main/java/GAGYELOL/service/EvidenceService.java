@@ -8,6 +8,8 @@ import GAGYELOL.entity.Evidence;
 import GAGYELOL.entity.Form;
 import GAGYELOL.entity.User;
 import GAGYELOL.entity.UserGroup;
+import GAGYELOL.entity.EvidenceForm;
+import GAGYELOL.repository.EvidenceFormRepository;
 import GAGYELOL.repository.EvidenceRepository;
 import GAGYELOL.repository.FormRepository;
 import GAGYELOL.repository.PolicyChunkVectorStore;
@@ -41,6 +43,7 @@ import java.util.zip.ZipOutputStream;
 public class EvidenceService {
 
     private final EvidenceRepository evidenceRepository;
+    private final EvidenceFormRepository evidenceFormRepository;
     private final FormRepository formRepository;
     private final UserRepository userRepository;
     private final UserGroupRepository groupRepository;
@@ -163,12 +166,16 @@ public class EvidenceService {
         Evidence evidence = evidenceRepository.findById(evidenceId)
                 .orElseThrow(() -> new IllegalArgumentException("증빙서류를 찾을 수 없습니다: " + evidenceId));
 
-        // 선택된 formIds DB에 저장
-        try {
-            String formIdsJson = objectMapper.writeValueAsString(request.getFormIds());
-            evidenceRepository.updateSelectedFormIds(evidenceId, formIdsJson);
-        } catch (Exception e) {
-            log.warn("selected_form_ids 저장 실패: {}", e.getMessage());
+        // 선택된 양식지 저장 (evidence_forms 테이블)
+        evidenceFormRepository.deleteByEvidenceId(evidenceId);
+        for (Long formId : request.getFormIds()) {
+            Form selectedForm = formRepository.findById(formId)
+                    .orElseThrow(() -> new IllegalArgumentException("양식지를 찾을 수 없습니다: " + formId));
+            evidenceFormRepository.save(EvidenceForm.builder()
+                    .id(new EvidenceForm.EvidenceFormId(evidenceId, formId))
+                    .evidence(evidence)
+                    .form(selectedForm)
+                    .build());
         }
 
         List<FillFieldsResponse.FormFillResult> results = new ArrayList<>();
