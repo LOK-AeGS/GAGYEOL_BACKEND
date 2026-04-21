@@ -10,5 +10,5 @@ import java.util.Optional;
 public interface GroupRoleRepository extends JpaRepository<GroupRole, Long> {
     List<GroupRole> findByGroupOrderByApprovalOrderAsc(UserGroup group);
     Optional<GroupRole> findByGroupAndApprovalOrder(UserGroup group, Integer approvalOrder);
-    List<GroupRole> findByGroupAndApprovalOrderGreaterThan(UserGroup group, Integer approvalOrder);
+    List<GroupRole> findByGroupAndApprovalOrderGreaterThanOrderByApprovalOrderAsc(UserGroup group, Integer approvalOrder);
 }
