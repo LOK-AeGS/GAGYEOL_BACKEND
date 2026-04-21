@@ -70,10 +70,22 @@ public class ApprovalService {
             throw new IllegalArgumentException("해당 양식지는 이 그룹의 것이 아닙니다.");
         }
 
-        String filledFieldsJson = toJson(req.getFilledFields());
+        // 재결재: parentRequestId가 있으면 이전 filled_fields 복사 (요청 값이 있으면 덮어씀)
+        ApprovalRequest parentRequest = null;
+        if (req.getParentRequestId() != null) {
+            parentRequest = requestRepository.findById(req.getParentRequestId())
+                    .orElseThrow(() -> new IllegalArgumentException("원본 결재요청을 찾을 수 없습니다: " + req.getParentRequestId()));
+            if (!"REJECTED".equals(parentRequest.getStatus())) {
+                throw new IllegalArgumentException("반려된 결재요청만 재결재할 수 있습니다.");
+            }
+        }
+
+        // filledFields: 요청 값 우선, 없으면 부모 요청 값 복사
+        String filledFieldsJson = (req.getFilledFields() != null && !req.getFilledFields().isEmpty())
+                ? toJson(req.getFilledFields())
+                : (parentRequest != null ? parentRequest.getFilledFields() : "{}");
 
         boolean hasNextStep = !higherRoles.isEmpty();
-        // 다음 단계 order는 실제 역할의 approval_order 사용 (+1 하드코딩 제거)
         int nextOrder = hasNextStep ? higherRoles.get(0).getApprovalOrder() : requesterOrder;
 
         String status = hasNextStep ? "IN_PROGRESS" : "APPROVED";
@@ -82,6 +94,7 @@ public class ApprovalService {
                 .requester(requester)
                 .evidence(evidence)
                 .form(form)
+                .parentRequest(parentRequest)
                 .filledFields(filledFieldsJson)
                 .currentApprovalOrder(nextOrder)
                 .status(status)

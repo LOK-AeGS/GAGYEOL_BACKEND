@@ -9,5 +9,6 @@ public class CreateApprovalRequest {
     private Long groupId;
     private Long evidenceId;
     private Long formId;
+    private Long parentRequestId;
     private Map<String, String> filledFields;
 }
