@@ -10,7 +10,7 @@ import java.util.Optional;
 
 public interface ApprovalStepRepository extends JpaRepository<ApprovalStep, Long> {
     List<ApprovalStep> findByRequestAndApprovalOrder(ApprovalRequest request, Integer approvalOrder);
-    Optional<ApprovalStep> findByRequestAndApprover(ApprovalRequest request, User approver);
+    Optional<ApprovalStep> findByRequestAndApproverAndApprovalOrder(ApprovalRequest request, User approver, Integer approvalOrder);
     List<ApprovalStep> findByRequest(ApprovalRequest request);
     List<ApprovalStep> findByApproverAndAction(User approver, String action);
 }

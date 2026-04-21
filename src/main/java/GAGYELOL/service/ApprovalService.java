@@ -121,11 +121,15 @@ public class ApprovalService {
 
     public ApprovalResponse approve(Long approverId, Long requestId, ApproveRequest req) {
         User approver = findUser(approverId);
-        ApprovalRequest approvalRequest = findRequest(requestId);
+        // Bug 3 fix: 비관적 락으로 동시 승인 시 중복 스텝 생성 방지
+        ApprovalRequest approvalRequest = requestRepository.findByIdWithLock(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("결재요청을 찾을 수 없습니다."));
 
         validateApprover(approver, approvalRequest);
 
-        ApprovalStep step = stepRepository.findByRequestAndApprover(approvalRequest, approver)
+        // Bug 2 fix: approval_order까지 함께 필터링하여 겸임 결재자 오작동 방지
+        ApprovalStep step = stepRepository.findByRequestAndApproverAndApprovalOrder(
+                        approvalRequest, approver, approvalRequest.getCurrentApprovalOrder())
                 .orElseThrow(() -> new IllegalArgumentException("결재 권한이 없습니다."));
 
         if (!"PENDING".equals(step.getAction())) {
@@ -139,7 +143,10 @@ public class ApprovalService {
         List<ApprovalStep> currentSteps = stepRepository.findByRequestAndApprovalOrder(
                 approvalRequest, approvalRequest.getCurrentApprovalOrder());
 
-        boolean allApproved = currentSteps.stream().allMatch(s -> "APPROVED".equals(s.getAction()));
+        // Bug 1 fix: CANCELED 스텝 제외 후 나머지가 모두 APPROVED인지 체크
+        boolean allApproved = currentSteps.stream()
+                .filter(s -> !"CANCELED".equals(s.getAction()))
+                .allMatch(s -> "APPROVED".equals(s.getAction()));
 
         if (allApproved) {
             // 다음 결재 단계 탐색
@@ -166,11 +173,13 @@ public class ApprovalService {
 
     public ApprovalResponse reject(Long approverId, Long requestId, ApproveRequest req) {
         User approver = findUser(approverId);
-        ApprovalRequest approvalRequest = findRequest(requestId);
+        ApprovalRequest approvalRequest = requestRepository.findByIdWithLock(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("결재요청을 찾을 수 없습니다."));
 
         validateApprover(approver, approvalRequest);
 
-        ApprovalStep step = stepRepository.findByRequestAndApprover(approvalRequest, approver)
+        ApprovalStep step = stepRepository.findByRequestAndApproverAndApprovalOrder(
+                        approvalRequest, approver, approvalRequest.getCurrentApprovalOrder())
                 .orElseThrow(() -> new IllegalArgumentException("결재 권한이 없습니다."));
 
         if (!"PENDING".equals(step.getAction())) {
