@@ -6,6 +6,7 @@ import GAGYELOL.dto.approval.CreateApprovalRequest;
 import GAGYELOL.dto.approval.EditFieldsRequest;
 import GAGYELOL.entity.*;
 import GAGYELOL.repository.*;
+import GAGYELOL.entity.Form;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,7 @@ public class ApprovalService {
     private final ApprovalStepRepository stepRepository;
     private final ApprovalEditHistoryRepository editHistoryRepository;
     private final EvidenceRepository evidenceRepository;
+    private final FormRepository formRepository;
     private final ObjectMapper objectMapper;
 
     public ApprovalResponse createRequest(Long requesterId, CreateApprovalRequest req) {
@@ -46,9 +48,27 @@ public class ApprovalService {
         // DB 저장 전 사전 검증: 모든 결재 단계에 멤버가 있는지 확인
         validateApprovalChain(group, higherRoles);
 
-        Evidence evidence = req.getEvidenceId() != null
-                ? evidenceRepository.findById(req.getEvidenceId()).orElse(null)
-                : null;
+        // evidenceId / formId 필수 검증
+        if (req.getEvidenceId() == null) {
+            throw new IllegalArgumentException("증빙서류(evidenceId)는 필수입니다.");
+        }
+        if (req.getFormId() == null) {
+            throw new IllegalArgumentException("양식지(formId)는 필수입니다.");
+        }
+
+        Evidence evidence = evidenceRepository.findById(req.getEvidenceId())
+                .orElseThrow(() -> new IllegalArgumentException("증빙서류를 찾을 수 없습니다: " + req.getEvidenceId()));
+
+        Form form = formRepository.findById(req.getFormId())
+                .orElseThrow(() -> new IllegalArgumentException("양식지를 찾을 수 없습니다: " + req.getFormId()));
+
+        // evidence와 form이 같은 그룹 소속인지 검증
+        if (evidence.getGroup() != null && !evidence.getGroup().getId().equals(group.getId())) {
+            throw new IllegalArgumentException("해당 증빙서류는 이 그룹의 것이 아닙니다.");
+        }
+        if (form.getGroup() != null && !form.getGroup().getId().equals(group.getId())) {
+            throw new IllegalArgumentException("해당 양식지는 이 그룹의 것이 아닙니다.");
+        }
 
         String filledFieldsJson = toJson(req.getFilledFields());
 
@@ -61,6 +81,7 @@ public class ApprovalService {
                 .group(group)
                 .requester(requester)
                 .evidence(evidence)
+                .form(form)
                 .filledFields(filledFieldsJson)
                 .currentApprovalOrder(nextOrder)
                 .status(status)
