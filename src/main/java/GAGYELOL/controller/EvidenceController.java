@@ -28,11 +28,10 @@ public class EvidenceController {
     public ResponseEntity<EvidenceAnalysisResponse> analyze(
             @RequestHeader("Authorization") String token,
             @RequestParam("file") MultipartFile file,
-            @RequestParam("policyId") Long policyId,
             @RequestParam(value = "groupId", required = false) Long groupId
     ) {
         Long userId = jwtUtil.extractUserId(token.replace("Bearer ", ""));
-        return ResponseEntity.ok(evidenceService.analyze(file, userId, policyId, groupId));
+        return ResponseEntity.ok(evidenceService.analyze(file, userId, groupId));
     }
 
     @PostMapping("/{evidenceId}/fill")

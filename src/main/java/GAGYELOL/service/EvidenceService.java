@@ -61,12 +61,20 @@ public class EvidenceService {
 
     private static final int TOP_K = 5;
 
-    public EvidenceAnalysisResponse analyze(MultipartFile file, Long userId, Long policyId, Long groupId) {
+    public EvidenceAnalysisResponse analyze(MultipartFile file, Long userId, Long groupId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
         UserGroup group = groupId != null
-                ? groupRepository.findById(groupId).orElse(null)
+                ? groupRepository.findById(groupId).orElseThrow(() -> new IllegalArgumentException("그룹을 찾을 수 없습니다: " + groupId))
                 : null;
+
+        // 그룹의 active_policy_id 자동 사용
+        Long policyId = (group != null && group.getActivePolicy() != null)
+                ? group.getActivePolicy().getId()
+                : null;
+        if (policyId == null) {
+            log.warn("그룹에 active_policy_id가 설정되지 않았습니다. RAG 검색 없이 진행합니다.");
+        }
 
         // 1. 파일 저장
         String filePath = saveFile(file);
