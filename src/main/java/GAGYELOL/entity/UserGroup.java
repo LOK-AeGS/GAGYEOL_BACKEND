@@ -28,7 +28,15 @@ public class UserGroup {
     @JoinColumn(name = "owner_id", nullable = false)
     private User owner;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "active_policy_id")
+    private Policy activePolicy;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+    public void updateActivePolicy(Policy policy) {
+        this.activePolicy = policy;
+    }
 }

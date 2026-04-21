@@ -30,6 +30,14 @@ public class ApprovalRequest {
     @JoinColumn(name = "evidence_id")
     private Evidence evidence;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "form_id")
+    private Form form;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_request_id")
+    private ApprovalRequest parentRequest;
+
     // 현재 양식지 내용 (JSON)
     @Column(name = "filled_fields", columnDefinition = "TEXT")
     private String filledFields;

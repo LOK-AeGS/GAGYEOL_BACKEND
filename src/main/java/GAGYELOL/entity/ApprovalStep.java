@@ -7,7 +7,9 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "approval_steps",
-       uniqueConstraints = @UniqueConstraint(columnNames = {"request_id", "approver_id"}))
+       uniqueConstraints = @UniqueConstraint(
+           name = "approval_steps_request_approver_order_key",
+           columnNames = {"request_id", "approver_id", "approval_order"}))
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
