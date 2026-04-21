@@ -7,6 +7,7 @@ import java.util.Map;
 @Getter
 public class CreateApprovalRequest {
     private Long groupId;
-    private Long evidenceId;          // 연결할 증빙서류 (선택)
-    private Map<String, String> filledFields; // 초기 양식지 내용
+    private Long evidenceId;
+    private Long formId;
+    private Map<String, String> filledFields;
 }
