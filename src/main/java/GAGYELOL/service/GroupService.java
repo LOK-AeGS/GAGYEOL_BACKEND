@@ -153,12 +153,58 @@ public class GroupService {
         User targetUser = findUser(request.getUserId());
         GroupRole newRole = roleRepository.findById(request.getRoleId())
                 .orElseThrow(() -> new IllegalArgumentException("역할을 찾을 수 없습니다."));
+        if (!newRole.getGroup().getId().equals(groupId)) {
+            throw new IllegalArgumentException("해당 그룹의 역할이 아닙니다.");
+        }
 
         GroupMember member = memberRepository.findByGroupAndUser(group, targetUser)
                 .orElseThrow(() -> new IllegalArgumentException("해당 그룹의 멤버가 아닙니다."));
 
+        int oldOrder = member.getRole().getApprovalOrder();
+        int newOrder = newRole.getApprovalOrder();
         member.updateRole(newRole);
+
+        if (oldOrder != newOrder) {
+            handleRoleChangeForPendingApprovals(group, targetUser, oldOrder, newOrder);
+        }
+
         return getGroupDetail(groupId);
+    }
+
+    private void handleRoleChangeForPendingApprovals(UserGroup group, User targetUser, int oldOrder, int newOrder) {
+        List<ApprovalRequest> inProgressRequests = approvalRequestRepository.findByGroupAndStatus(group, "IN_PROGRESS");
+
+        for (ApprovalRequest req : inProgressRequests) {
+            int currentOrder = req.getCurrentApprovalOrder();
+
+            // 강등: 기존 역할(oldOrder)의 PENDING 스텝 보유 중이고 현재 결재 단계가 oldOrder면 CANCELED
+            if (currentOrder == oldOrder) {
+                approvalStepRepository.findByRequestAndApproverAndApprovalOrder(req, targetUser, oldOrder)
+                        .filter(s -> "PENDING".equals(s.getAction()))
+                        .ifPresent(s -> {
+                            s.cancel();
+                            approvalStepRepository.save(s);
+                            log.info("역할 변경으로 PENDING 스텝 취소 - requestId={}, userId={}", req.getId(), targetUser.getId());
+                            advanceIfAllDone(req);
+                        });
+            }
+
+            // 승급: 새 역할(newOrder)이 현재 결재 단계이면 PENDING 스텝 추가
+            if (currentOrder == newOrder) {
+                boolean alreadyHasStep = approvalStepRepository
+                        .findByRequestAndApproverAndApprovalOrder(req, targetUser, newOrder)
+                        .isPresent();
+                if (!alreadyHasStep) {
+                    approvalStepRepository.save(ApprovalStep.builder()
+                            .request(req)
+                            .approver(targetUser)
+                            .approvalOrder(newOrder)
+                            .action("PENDING")
+                            .build());
+                    log.info("역할 변경으로 PENDING 스텝 추가 - requestId={}, userId={}", req.getId(), targetUser.getId());
+                }
+            }
+        }
     }
 
     @Transactional(readOnly = true)
