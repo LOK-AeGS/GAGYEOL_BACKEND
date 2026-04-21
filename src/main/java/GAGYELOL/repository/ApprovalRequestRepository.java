@@ -15,6 +15,7 @@ import java.util.Optional;
 public interface ApprovalRequestRepository extends JpaRepository<ApprovalRequest, Long> {
     List<ApprovalRequest> findByGroupOrderByCreatedAtDesc(UserGroup group);
     List<ApprovalRequest> findByRequesterOrderByCreatedAtDesc(User requester);
+    List<ApprovalRequest> findByGroupAndStatus(UserGroup group, String status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM ApprovalRequest r WHERE r.id = :id")
