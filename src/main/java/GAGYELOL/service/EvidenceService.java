@@ -184,6 +184,13 @@ public class EvidenceService {
             Form form = formRepository.findById(formId)
                     .orElseThrow(() -> new IllegalArgumentException("양식지를 찾을 수 없습니다: " + formId));
 
+            // 양식지가 증빙서류와 같은 그룹 소속인지 검증
+            if (evidence.getGroup() != null && form.getGroup() != null
+                    && !form.getGroup().getId().equals(evidence.getGroup().getId())) {
+                throw new IllegalArgumentException(
+                        "양식지(id=" + formId + ")가 해당 그룹 소속이 아닙니다.");
+            }
+
             List<String> formFields;
             try {
                 formFields = objectMapper.readValue(form.getFormFields(), new TypeReference<>() {});
@@ -224,8 +231,18 @@ public class EvidenceService {
      * 양식지가 1개면 단일 파일, 여러 개면 ZIP으로 반환합니다.
      */
     public byte[] completeForm(Long evidenceId, CompleteFormRequest request) {
-        evidenceRepository.findById(evidenceId)
+        Evidence evidence = evidenceRepository.findById(evidenceId)
                 .orElseThrow(() -> new IllegalArgumentException("증빙서류를 찾을 수 없습니다: " + evidenceId));
+
+        // form이 evidence와 같은 그룹 소속인지 검증
+        for (CompleteFormRequest.FormInput input : request.getForms()) {
+            Form form = formRepository.findById(input.getFormId())
+                    .orElseThrow(() -> new IllegalArgumentException("양식지를 찾을 수 없습니다: " + input.getFormId()));
+            if (evidence.getGroup() != null && form.getGroup() != null
+                    && !form.getGroup().getId().equals(evidence.getGroup().getId())) {
+                throw new IllegalArgumentException("양식지(id=" + input.getFormId() + ")가 해당 그룹 소속이 아닙니다.");
+            }
+        }
 
         List<CompleteFormRequest.FormInput> formInputs = request.getForms();
 
