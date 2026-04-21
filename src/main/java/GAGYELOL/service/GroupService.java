@@ -5,6 +5,7 @@ import GAGYELOL.dto.group.CreateGroupRequest;
 import GAGYELOL.dto.group.GroupResponse;
 import GAGYELOL.entity.*;
 import GAGYELOL.repository.*;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 @Transactional
 public class GroupService {
@@ -21,6 +23,8 @@ public class GroupService {
     private final UserGroupRepository groupRepository;
     private final GroupRoleRepository roleRepository;
     private final GroupMemberRepository memberRepository;
+    private final ApprovalStepRepository approvalStepRepository;
+    private final ApprovalRequestRepository approvalRequestRepository;
 
     public GroupResponse createGroup(Long ownerId, CreateGroupRequest request) {
         User owner = findUser(ownerId);
@@ -73,6 +77,73 @@ public class GroupService {
                 .build());
 
         return getGroupDetail(group.getId());
+    }
+
+    public void kickMember(Long ownerId, Long groupId, Long targetUserId) {
+        UserGroup group = findGroup(groupId);
+        validateOwner(ownerId, group);
+
+        User targetUser = findUser(targetUserId);
+        if (group.getOwner().getId().equals(targetUserId)) {
+            throw new IllegalArgumentException("그룹 대표자는 추방할 수 없습니다.");
+        }
+
+        GroupMember member = memberRepository.findByGroupAndUser(group, targetUser)
+                .orElseThrow(() -> new IllegalArgumentException("해당 그룹의 멤버가 아닙니다."));
+
+        // 탈퇴 멤버의 PENDING approval_steps 취소 처리
+        List<ApprovalStep> pendingSteps = approvalStepRepository.findByApproverAndAction(targetUser, "PENDING");
+        for (ApprovalStep step : pendingSteps) {
+            ApprovalRequest request = step.getRequest();
+            if (!"IN_PROGRESS".equals(request.getStatus())) continue;
+            if (!request.getGroup().getId().equals(groupId)) continue;
+
+            step.cancel();
+            approvalStepRepository.save(step);
+            log.info("멤버 추방으로 approval_step 취소 - stepId={}, requestId={}", step.getId(), request.getId());
+
+            // 같은 단계에 PENDING이 남아있는지 확인 → 없으면 다음 단계 진행
+            advanceIfAllDone(request);
+        }
+
+        memberRepository.delete(member);
+        log.info("멤버 추방 완료 - groupId={}, userId={}", groupId, targetUserId);
+    }
+
+    private void advanceIfAllDone(ApprovalRequest request) {
+        List<ApprovalStep> sameOrderSteps = approvalStepRepository
+                .findByRequestAndApprovalOrder(request, request.getCurrentApprovalOrder());
+
+        boolean anyPending = sameOrderSteps.stream().anyMatch(s -> "PENDING".equals(s.getAction()));
+        if (anyPending) return;
+
+        boolean anyApproved = sameOrderSteps.stream().anyMatch(s -> "APPROVED".equals(s.getAction()));
+
+        List<GroupRole> nextRoles = roleRepository
+                .findByGroupAndApprovalOrderGreaterThanOrderByApprovalOrderAsc(
+                        request.getGroup(), request.getCurrentApprovalOrder());
+
+        if (nextRoles.isEmpty()) {
+            // 마지막 단계였으면 승인/취소 여부에 따라 최종 처리
+            request.updateStatus(anyApproved ? "APPROVED" : "CANCELED");
+            log.info("결재 최종 처리 (멤버 추방) - requestId={}, status={}", request.getId(), request.getStatus());
+        } else {
+            // 다음 단계로 진행
+            int nextOrder = nextRoles.get(0).getApprovalOrder();
+            request.updateApprovalOrder(nextOrder);
+            GroupRole nextRole = nextRoles.get(0);
+            List<GroupMember> nextApprovers = memberRepository.findByGroupAndRole(request.getGroup(), nextRole);
+            for (GroupMember approver : nextApprovers) {
+                approvalStepRepository.save(ApprovalStep.builder()
+                        .request(request)
+                        .approver(approver.getUser())
+                        .approvalOrder(nextOrder)
+                        .action("PENDING")
+                        .build());
+            }
+            log.info("결재 다음 단계 진행 (멤버 추방) - requestId={}, nextOrder={}", request.getId(), nextOrder);
+        }
+        approvalRequestRepository.save(request);
     }
 
     public GroupResponse assignRole(Long ownerId, Long groupId, AssignRoleRequest request) {
