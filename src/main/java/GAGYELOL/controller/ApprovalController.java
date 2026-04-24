@@ -1,10 +1,12 @@
 package GAGYELOL.controller;
 
 import GAGYELOL.config.JwtUtil;
+import GAGYELOL.dto.approval.ApprovalHistoryResponse;
 import GAGYELOL.dto.approval.ApprovalResponse;
 import GAGYELOL.dto.approval.ApproveRequest;
 import GAGYELOL.dto.approval.CreateApprovalRequest;
 import GAGYELOL.dto.approval.EditFieldsRequest;
+import GAGYELOL.dto.approval.ResubmitRequest;
 import GAGYELOL.service.ApprovalService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -35,10 +37,34 @@ public class ApprovalController {
         return ResponseEntity.ok(approvalService.getRequest(requestId));
     }
 
+    // 결재 이력 조회 (steps + 수정 이력)
+    @GetMapping("/{requestId}/history")
+    public ResponseEntity<ApprovalHistoryResponse> getHistory(@PathVariable Long requestId) {
+        return ResponseEntity.ok(approvalService.getHistory(requestId));
+    }
+
+    // 내 결재 목록 (내가 요청자인 건)
+    @GetMapping("/my")
+    public ResponseEntity<List<ApprovalResponse>> getMyRequests(
+            @RequestHeader("Authorization") String token) {
+        Long userId = extractUserId(token);
+        return ResponseEntity.ok(approvalService.getMyRequests(userId));
+    }
+
     // 그룹 결재 목록 조회
     @GetMapping("/group/{groupId}")
     public ResponseEntity<List<ApprovalResponse>> getGroupRequests(@PathVariable Long groupId) {
         return ResponseEntity.ok(approvalService.getGroupRequests(groupId));
+    }
+
+    // 결재 재요청 (REJECTED → 수정 후 새 결재 생성)
+    @PostMapping("/{requestId}/resubmit")
+    public ResponseEntity<ApprovalResponse> resubmit(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long requestId,
+            @RequestBody ResubmitRequest request) {
+        Long userId = extractUserId(token);
+        return ResponseEntity.ok(approvalService.resubmit(userId, requestId, request));
     }
 
     // 승인

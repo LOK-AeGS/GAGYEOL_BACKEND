@@ -3,6 +3,7 @@ package GAGYELOL.controller;
 import GAGYELOL.config.JwtUtil;
 import GAGYELOL.dto.CompleteFormRequest;
 import GAGYELOL.dto.EvidenceAnalysisResponse;
+import GAGYELOL.dto.EvidenceResponse;
 import GAGYELOL.dto.FillFieldsRequest;
 import GAGYELOL.dto.FillFieldsResponse;
 import GAGYELOL.service.EvidenceService;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/evidence")
@@ -23,6 +25,22 @@ public class EvidenceController {
 
     private final EvidenceService evidenceService;
     private final JwtUtil jwtUtil;
+
+    @GetMapping
+    public ResponseEntity<List<EvidenceResponse>> listByGroup(@RequestParam Long groupId) {
+        return ResponseEntity.ok(evidenceService.getByGroup(groupId));
+    }
+
+    @GetMapping("/{evidenceId}")
+    public ResponseEntity<EvidenceResponse> getById(@PathVariable Long evidenceId) {
+        return ResponseEntity.ok(evidenceService.getById(evidenceId));
+    }
+
+    @DeleteMapping("/{evidenceId}")
+    public ResponseEntity<Void> delete(@PathVariable Long evidenceId) {
+        evidenceService.delete(evidenceId);
+        return ResponseEntity.noContent().build();
+    }
 
     @PostMapping("/analyze")
     public ResponseEntity<EvidenceAnalysisResponse> analyze(

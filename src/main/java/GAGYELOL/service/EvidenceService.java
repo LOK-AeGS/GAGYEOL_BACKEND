@@ -2,6 +2,7 @@ package GAGYELOL.service;
 
 import GAGYELOL.dto.CompleteFormRequest;
 import GAGYELOL.dto.EvidenceAnalysisResponse;
+import GAGYELOL.dto.EvidenceResponse;
 import GAGYELOL.dto.FillFieldsRequest;
 import GAGYELOL.dto.FillFieldsResponse;
 import GAGYELOL.entity.Evidence;
@@ -9,6 +10,7 @@ import GAGYELOL.entity.Form;
 import GAGYELOL.entity.User;
 import GAGYELOL.entity.UserGroup;
 import GAGYELOL.entity.EvidenceForm;
+import GAGYELOL.repository.ApprovalRequestRepository;
 import GAGYELOL.repository.EvidenceFormRepository;
 import GAGYELOL.repository.EvidenceRepository;
 import GAGYELOL.repository.FormRepository;
@@ -44,6 +46,7 @@ public class EvidenceService {
 
     private final EvidenceRepository evidenceRepository;
     private final EvidenceFormRepository evidenceFormRepository;
+    private final ApprovalRequestRepository approvalRequestRepository;
     private final FormRepository formRepository;
     private final UserRepository userRepository;
     private final UserGroupRepository groupRepository;
@@ -60,6 +63,46 @@ public class EvidenceService {
     private String uploadDir;
 
     private static final int TOP_K = 5;
+
+    @Transactional(readOnly = true)
+    public List<EvidenceResponse> getByGroup(Long groupId) {
+        UserGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new IllegalArgumentException("그룹을 찾을 수 없습니다: " + groupId));
+        return evidenceRepository.findByGroupOrderByCreatedAtDesc(group).stream()
+                .map(e -> EvidenceResponse.from(e, evidenceFormRepository.findFormIdsByEvidenceId(e.getId())))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public EvidenceResponse getById(Long evidenceId) {
+        Evidence evidence = evidenceRepository.findById(evidenceId)
+                .orElseThrow(() -> new IllegalArgumentException("증빙서류를 찾을 수 없습니다: " + evidenceId));
+        return EvidenceResponse.from(evidence, evidenceFormRepository.findFormIdsByEvidenceId(evidenceId));
+    }
+
+    public void delete(Long evidenceId) {
+        Evidence evidence = evidenceRepository.findById(evidenceId)
+                .orElseThrow(() -> new IllegalArgumentException("증빙서류를 찾을 수 없습니다: " + evidenceId));
+
+        // 결재 요청에서 참조 중이면 삭제 거부 (FK 무결성 + 감사 보존)
+        long approvalCount = approvalRequestRepository.countByEvidence(evidence);
+        if (approvalCount > 0) {
+            throw new IllegalArgumentException(
+                    "해당 증빙서류는 결재 요청에서 사용 중이므로 삭제할 수 없습니다. (결재 요청 " + approvalCount + "건)");
+        }
+
+        evidenceFormRepository.deleteByEvidenceId(evidenceId);
+        evidenceRepository.delete(evidence);
+
+        // 업로드 파일 제거 (DB 삭제 성공 후에만 시도)
+        try {
+            Files.deleteIfExists(Paths.get(evidence.getFilePath()));
+        } catch (IOException e) {
+            log.warn("증빙서류 파일 삭제 실패 (evidenceId={}, path={}): {}",
+                    evidenceId, evidence.getFilePath(), e.getMessage());
+        }
+        log.info("증빙서류 삭제 완료 - evidenceId={}", evidenceId);
+    }
 
     public EvidenceAnalysisResponse analyze(MultipartFile file, Long userId, Long groupId) {
         User user = userRepository.findById(userId)

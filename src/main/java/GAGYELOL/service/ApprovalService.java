@@ -1,9 +1,11 @@
 package GAGYELOL.service;
 
+import GAGYELOL.dto.approval.ApprovalHistoryResponse;
 import GAGYELOL.dto.approval.ApprovalResponse;
 import GAGYELOL.dto.approval.ApproveRequest;
 import GAGYELOL.dto.approval.CreateApprovalRequest;
 import GAGYELOL.dto.approval.EditFieldsRequest;
+import GAGYELOL.dto.approval.ResubmitRequest;
 import GAGYELOL.entity.*;
 import GAGYELOL.repository.*;
 import GAGYELOL.entity.Form;
@@ -239,6 +241,106 @@ public class ApprovalService {
         return requestRepository.findByGroupOrderByCreatedAtDesc(group).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ApprovalResponse> getMyRequests(Long userId) {
+        User user = findUser(userId);
+        return requestRepository.findByRequesterOrderByCreatedAtDesc(user).stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ApprovalHistoryResponse getHistory(Long requestId) {
+        ApprovalRequest request = findRequest(requestId);
+        List<ApprovalStep> steps = stepRepository.findByRequest(request);
+        List<ApprovalEditHistory> edits = editHistoryRepository.findByRequestOrderByEditedAtAsc(request);
+
+        List<ApprovalResponse.StepSummary> stepSummaries = steps.stream()
+                .map(s -> {
+                    GroupMember member = memberRepository
+                            .findByGroupAndUser(request.getGroup(), s.getApprover())
+                            .orElse(null);
+                    return ApprovalResponse.StepSummary.builder()
+                            .approverName(s.getApprover().getName())
+                            .approvalOrder(s.getApprovalOrder())
+                            .roleName(member != null ? member.getRole().getRoleName() : "-")
+                            .action(s.getAction())
+                            .comment(s.getComment())
+                            .actedAt(s.getActedAt())
+                            .build();
+                })
+                .toList();
+
+        List<ApprovalHistoryResponse.EditEntry> editEntries = edits.stream()
+                .map(e -> ApprovalHistoryResponse.EditEntry.builder()
+                        .editId(e.getId())
+                        .editorName(e.getEditor().getName())
+                        .beforeFields(fromJson(e.getBeforeFields()))
+                        .afterFields(fromJson(e.getAfterFields()))
+                        .editedAt(e.getEditedAt())
+                        .build())
+                .toList();
+
+        return ApprovalHistoryResponse.builder()
+                .requestId(request.getId())
+                .status(request.getStatus())
+                .currentApprovalOrder(request.getCurrentApprovalOrder())
+                .filledFields(fromJson(request.getFilledFields()))
+                .steps(stepSummaries)
+                .editHistory(editEntries)
+                .build();
+    }
+
+    public ApprovalResponse resubmit(Long requesterId, Long requestId, ResubmitRequest req) {
+        ApprovalRequest parent = findRequest(requestId);
+
+        if (!"REJECTED".equals(parent.getStatus())) {
+            throw new IllegalArgumentException("반려된 결재요청만 재요청할 수 있습니다. (현재 상태: " + parent.getStatus() + ")");
+        }
+        if (!parent.getRequester().getId().equals(requesterId)) {
+            throw new IllegalArgumentException("본인이 작성한 결재요청만 재요청할 수 있습니다.");
+        }
+
+        User requester = parent.getRequester();
+        UserGroup group = parent.getGroup();
+        Evidence evidence = parent.getEvidence();
+        Form form = parent.getForm();
+
+        GroupMember requesterMember = memberRepository.findByGroupAndUser(group, requester)
+                .orElseThrow(() -> new IllegalArgumentException("해당 그룹의 멤버가 아닙니다."));
+        int requesterOrder = requesterMember.getRole().getApprovalOrder();
+
+        List<GroupRole> higherRoles = roleRepository
+                .findByGroupAndApprovalOrderGreaterThanOrderByApprovalOrderAsc(group, requesterOrder);
+        validateApprovalChain(group, higherRoles);
+
+        String filledFieldsJson = (req.getFilledFields() != null && !req.getFilledFields().isEmpty())
+                ? toJson(req.getFilledFields())
+                : parent.getFilledFields();
+
+        boolean hasNextStep = !higherRoles.isEmpty();
+        int nextOrder = hasNextStep ? higherRoles.get(0).getApprovalOrder() : requesterOrder;
+        String status = hasNextStep ? "IN_PROGRESS" : "APPROVED";
+
+        ApprovalRequest newRequest = requestRepository.save(ApprovalRequest.builder()
+                .group(group)
+                .requester(requester)
+                .evidence(evidence)
+                .form(form)
+                .parentRequest(parent)
+                .filledFields(filledFieldsJson)
+                .currentApprovalOrder(nextOrder)
+                .status(status)
+                .build());
+
+        if (hasNextStep) {
+            createPendingSteps(newRequest, group, nextOrder);
+        }
+
+        log.info("결재 재요청 생성 - parentId={}, newId={}, status={}", requestId, newRequest.getId(), status);
+        return toResponse(newRequest);
     }
 
     // ────────────── 내부 헬퍼 ──────────────
