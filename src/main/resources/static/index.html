@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>GAGYEOL - 증빙 결재 시스템</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Pretendard", sans-serif;
+       background: #f4f6f9; color: #222; line-height: 1.5; }
+header { background: #2c3e50; color: #fff; padding: 14px 28px; display: flex; justify-content: space-between; align-items: center; }
+header h1 { font-size: 18px; font-weight: 600; }
+header .user-info { font-size: 13px; display: flex; gap: 12px; align-items: center; }
+header button { background: #e74c3c; color: #fff; border: 0; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.tabs { display: flex; border-bottom: 2px solid #ddd; margin-bottom: 20px; }
+.tabs button { background: transparent; border: 0; padding: 10px 18px; cursor: pointer; font-size: 14px; color: #555; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+.tabs button.active { color: #2c3e50; border-bottom-color: #3498db; font-weight: 600; }
+.section { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 20px; }
+.section h2 { font-size: 16px; margin-bottom: 14px; color: #2c3e50; }
+.form-row { margin-bottom: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.form-row label { min-width: 80px; font-size: 13px; color: #555; }
+input[type=text], input[type=email], input[type=password], input[type=number], textarea, select {
+  padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; flex: 1; min-width: 0; }
+textarea { min-height: 70px; resize: vertical; font-family: inherit; }
+button.primary { background: #3498db; color: #fff; border: 0; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+button.primary:hover { background: #2980b9; }
+button.primary:disabled { background: #aaa; cursor: not-allowed; }
+button.danger { background: #e74c3c; color: #fff; border: 0; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+button.secondary { background: #95a5a6; color: #fff; border: 0; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+button.success { background: #27ae60; color: #fff; border: 0; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: middle; }
+th { background: #f8f9fa; font-weight: 600; font-size: 12px; color: #555; }
+.auth-box { max-width: 400px; margin: 60px auto; background: #fff; padding: 28px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.auth-box h1 { text-align: center; color: #2c3e50; margin-bottom: 20px; }
+.auth-box .tabs { justify-content: center; }
+.status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.status-DRAFT, .status-PENDING { background: #ecf0f1; color: #7f8c8d; }
+.status-IN_PROGRESS { background: #fef5e7; color: #d68910; }
+.status-APPROVED { background: #e8f8f5; color: #27ae60; }
+.status-REJECTED { background: #fadbd8; color: #c0392b; }
+.status-CANCELED { background: #eaeded; color: #909497; }
+.toast-box { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+.toast { padding: 12px 18px; border-radius: 4px; color: #fff; font-size: 13px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); animation: slide 0.2s ease; min-width: 220px; }
+.toast.error { background: #e74c3c; }
+.toast.success { background: #27ae60; }
+.toast.info { background: #3498db; }
+@keyframes slide { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.spinner-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.6); display: flex; align-items: center; justify-content: center; z-index: 9998; }
+.spinner { width: 40px; height: 40px; border: 4px solid #e0e0e0; border-top-color: #3498db; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.hidden { display: none !important; }
+.muted { color: #888; font-size: 12px; }
+.field-row { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; margin-bottom: 6px; align-items: center; }
+.field-row label { font-size: 12px; color: #555; }
+.missing-tag { background: #f39c12; color: #fff; padding: 1px 6px; border-radius: 8px; font-size: 10px; margin-left: 4px; }
+.steps-list { margin: 10px 0; padding-left: 16px; }
+.steps-list li { margin-bottom: 4px; font-size: 13px; }
+details { margin-top: 8px; font-size: 12px; }
+details summary { cursor: pointer; color: #3498db; }
+.history-entry { background: #f8f9fa; padding: 8px; margin: 6px 0; border-radius: 4px; font-size: 12px; }
+.diff-before { color: #c0392b; text-decoration: line-through; }
+.diff-after { color: #27ae60; }
+</style>
+</head>
+<body>
+
+<div class="toast-box" id="toastBox"></div>
+<div class="spinner-overlay hidden" id="spinner"><div class="spinner"></div></div>
+
+<div id="authView" class="auth-box hidden">
+  <h1>GAGYEOL</h1>
+  <div class="tabs">
+    <button id="loginTab" class="active" onclick="switchAuth('login')">로그인</button>
+    <button id="registerTab" onclick="switchAuth('register')">회원가입</button>
+  </div>
+
+  <div id="loginForm">
+    <div class="form-row"><label>이메일</label><input id="loginEmail" type="email" placeholder="email@example.com"></div>
+    <div class="form-row"><label>비밀번호</label><input id="loginPw" type="password"></div>
+    <button class="primary" style="width:100%;margin-top:10px" onclick="login()">로그인</button>
+  </div>
+
+  <div id="registerForm" class="hidden">
+    <div class="form-row"><label>이메일</label><input id="regEmail" type="email" placeholder="email@example.com"></div>
+    <div class="form-row"><label>이름</label><input id="regName" type="text" placeholder="홍길동"></div>
+    <div class="form-row"><label>비밀번호</label><input id="regPw" type="password" placeholder="8자 이상"></div>
+    <button class="primary" style="width:100%;margin-top:10px" onclick="register()">회원가입</button>
+  </div>
+</div>
+
+<div id="appView" class="hidden">
+  <header>
+    <h1>GAGYEOL - 증빙 결재 시스템</h1>
+    <div class="user-info">
+      <span id="userGreeting"></span>
+      <button onclick="logout()">로그아웃</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="tabs">
+      <button class="active" data-tab="groups" onclick="switchTab('groups')">그룹</button>
+      <button data-tab="policy" onclick="switchTab('policy')">규정책</button>
+      <button data-tab="form" onclick="switchTab('form')">양식지</button>
+      <button data-tab="evidence" onclick="switchTab('evidence')">증빙서류</button>
+      <button data-tab="approval" onclick="switchTab('approval')">결재</button>
+    </div>
+
+    <!-- 그룹 탭 -->
+    <div id="tab-groups">
+      <div class="section">
+        <h2>그룹 생성</h2>
+        <div class="form-row"><label>그룹명</label><input id="newGroupName" type="text" placeholder="예: 총학생회"></div>
+        <div class="form-row"><label>역할 (콤마)</label><input id="newGroupRoles" type="text" placeholder="예: 부원,차장,부장 (낮은 순서부터)"></div>
+        <div class="form-row"><button class="primary" onclick="createGroup()">생성</button></div>
+      </div>
+
+      <div class="section">
+        <h2>초대코드로 가입</h2>
+        <div class="form-row">
+          <label>초대코드</label><input id="inviteCode" type="text">
+          <button class="primary" onclick="joinGroup()">가입</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>내 그룹</h2>
+        <div class="form-row"><button class="secondary" onclick="loadMyGroups()">새로고침</button></div>
+        <table id="groupsTable"><thead><tr><th>ID</th><th>이름</th><th>역할</th><th>초대코드</th><th>활성 규정책</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+
+      <div id="groupDetailSection" class="section hidden">
+        <h2>그룹 상세 (<span id="gdName"></span>)</h2>
+        <div class="form-row muted" id="gdMembers"></div>
+        <h3 style="margin-top:10px;font-size:13px">역할 추가</h3>
+        <div class="form-row">
+          <input id="gdNewRoleName" type="text" placeholder="역할명">
+          <input id="gdNewRoleOrder" type="number" placeholder="결재순서 숫자" style="max-width:120px">
+          <button class="primary" onclick="addRole()">추가</button>
+        </div>
+        <h3 style="margin-top:10px;font-size:13px">멤버 역할 변경 / 강퇴</h3>
+        <table id="gdMembersTable"><thead><tr><th>이름</th><th>이메일</th><th>역할</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+
+    <!-- 규정책 탭 -->
+    <div id="tab-policy" class="hidden">
+      <div class="section">
+        <h2>규정책 업로드</h2>
+        <div class="form-row"><label>그룹</label><select id="policyGroupSelect"></select></div>
+        <div class="form-row"><label>규정책명</label><input id="policyName" type="text" placeholder="예: 2026 총학생회 회계규정"></div>
+        <div class="form-row"><label>PDF</label><input id="policyFile" type="file" accept=".pdf"></div>
+        <div class="form-row"><button class="primary" onclick="uploadPolicy()">업로드</button></div>
+      </div>
+      <div class="section">
+        <h2>규정책 목록</h2>
+        <div class="form-row"><label>그룹</label><select id="policyListGroup" onchange="loadPolicies()"></select></div>
+        <table id="policyTable"><thead><tr><th>ID</th><th>이름</th><th>생성일</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+
+    <!-- 양식지 탭 -->
+    <div id="tab-form" class="hidden">
+      <div class="section">
+        <h2>양식지 업로드</h2>
+        <div class="form-row"><label>그룹</label><select id="formGroupSelect"></select></div>
+        <div class="form-row"><label>양식명</label><input id="formName" type="text" placeholder="예: 지출결의서"></div>
+        <div class="form-row"><label>결제유형</label><select id="formPaymentType"><option value="BOTH">BOTH</option><option value="CARD">CARD</option><option value="CASH">CASH</option></select></div>
+        <div class="form-row"><label>파일</label><input id="formFile" type="file" accept=".docx,.xlsx"></div>
+        <div class="muted" style="margin:4px 0 8px 88px">※ 양식지 목록/삭제 엔드포인트는 파트 B에서 구현 예정입니다.</div>
+        <div class="form-row"><button class="primary" onclick="uploadForm()">업로드</button></div>
+      </div>
+      <div class="section">
+        <h2>양식지 목록</h2>
+        <div class="form-row"><label>그룹</label><select id="formListGroup" onchange="loadForms()"></select></div>
+        <table id="formTable"><thead><tr><th>ID</th><th>이름</th><th>결제유형</th><th>필드 수</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+
+    <!-- 증빙서류 탭 -->
+    <div id="tab-evidence" class="hidden">
+      <div class="section">
+        <h2>증빙서류 업로드/분석</h2>
+        <div class="form-row"><label>그룹</label><select id="evidGroupSelect"></select></div>
+        <div class="form-row"><label>파일</label><input id="evidFile" type="file"></div>
+        <div class="form-row"><button class="primary" onclick="analyzeEvidence()">분석</button></div>
+      </div>
+
+      <div id="evidResult" class="section hidden">
+        <h2>분석 결과</h2>
+        <div>증빙 ID: <b id="evidIdShow"></b> / 결제유형: <b id="evidPaymentType"></b></div>
+        <h3 style="margin-top:14px;font-size:13px">양식지 선택</h3>
+        <div id="evidAvailableForms"></div>
+        <div class="form-row"><button class="primary" onclick="fillFields()">필드 자동 채우기</button></div>
+      </div>
+
+      <div id="evidFillResult" class="section hidden">
+        <h2>자동 채우기 결과</h2>
+        <div id="evidFillForms"></div>
+        <div class="form-row">
+          <button class="primary" onclick="submitApproval()">결재 요청</button>
+          <button class="secondary" onclick="downloadFinal()">바로 다운로드 (결재 없이)</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>증빙서류 목록</h2>
+        <div class="form-row"><label>그룹</label><select id="evidListGroup" onchange="loadEvidence()"></select></div>
+        <table id="evidTable"><thead><tr><th>ID</th><th>파일명</th><th>선택양식</th><th>생성일</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+
+    <!-- 결재 탭 -->
+    <div id="tab-approval" class="hidden">
+      <div class="section">
+        <h2>내 결재 목록 (내가 요청한 건)</h2>
+        <div class="form-row"><button class="secondary" onclick="loadMyApprovals()">새로고침</button></div>
+        <table id="myApprovalsTable"><thead><tr><th>ID</th><th>상태</th><th>단계</th><th>생성일</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+
+      <div class="section">
+        <h2>그룹 결재 목록 (내가 결재할 건 포함)</h2>
+        <div class="form-row"><label>그룹</label><select id="apprGroupSelect" onchange="loadGroupApprovals()"></select></div>
+        <table id="groupApprovalsTable"><thead><tr><th>ID</th><th>요청자</th><th>상태</th><th>단계</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+
+      <div id="apprDetailSection" class="section hidden">
+        <h2>결재 상세 (#<span id="apprDetailId"></span>)</h2>
+        <div id="apprDetailContent"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ============ 전역 상태 ============
+const API = '';
+let token = localStorage.getItem('jwt') || null;
+let currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+let myGroups = [];
+let evidCache = null; // {evidenceId, availableForms, fillResults}
+
+// ============ 유틸 ============
+function toast(msg, type='info') {
+  const box = document.getElementById('toastBox');
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  box.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+function spinner(on) {
+  document.getElementById('spinner').classList.toggle('hidden', !on);
+}
+async function api(path, options={}) {
+  spinner(true);
+  try {
+    const headers = options.headers || {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    if (!(options.body instanceof FormData) && options.body && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const res = await fetch(API + path, { ...options, headers });
+    const ct = res.headers.get('Content-Type') || '';
+    let data;
+    if (ct.includes('application/json')) data = await res.json();
+    else if (ct.includes('application/octet-stream') || ct.includes('application/zip')
+             || ct.includes('openxmlformats')) return res; // 바이너리
+    else data = await res.text();
+    if (!res.ok) {
+      const msg = (data && data.error) ? data.error : (typeof data === 'string' ? data : '요청 실패');
+      throw new Error(msg);
+    }
+    return data;
+  } finally {
+    spinner(false);
+  }
+}
+
+// ============ Auth ============
+function switchAuth(mode) {
+  document.getElementById('loginTab').classList.toggle('active', mode === 'login');
+  document.getElementById('registerTab').classList.toggle('active', mode === 'register');
+  document.getElementById('loginForm').classList.toggle('hidden', mode !== 'login');
+  document.getElementById('registerForm').classList.toggle('hidden', mode !== 'register');
+}
+async function login() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPw').value;
+  if (!email || !password) return toast('이메일/비밀번호를 입력하세요', 'error');
+  try {
+    const data = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    token = data.token;
+    currentUser = { id: data.userId, email: data.email, name: data.name };
+    localStorage.setItem('jwt', token);
+    localStorage.setItem('user', JSON.stringify(currentUser));
+    showApp();
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function register() {
+  const email = document.getElementById('regEmail').value.trim();
+  const name = document.getElementById('regName').value.trim();
+  const password = document.getElementById('regPw').value;
+  if (!email || !name || !password) return toast('모두 입력하세요', 'error');
+  try {
+    await api('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, name, password }) });
+    toast('가입 완료! 로그인 해주세요', 'success');
+    switchAuth('login');
+    document.getElementById('loginEmail').value = email;
+  } catch (e) { toast(e.message, 'error'); }
+}
+function logout() {
+  localStorage.removeItem('jwt');
+  localStorage.removeItem('user');
+  token = null; currentUser = null;
+  document.getElementById('authView').classList.remove('hidden');
+  document.getElementById('appView').classList.add('hidden');
+}
+function showApp() {
+  document.getElementById('authView').classList.add('hidden');
+  document.getElementById('appView').classList.remove('hidden');
+  document.getElementById('userGreeting').textContent = currentUser ? `${currentUser.name} (${currentUser.email})` : '';
+  loadMyGroups();
+}
+
+// ============ 탭 전환 ============
+function switchTab(tab) {
+  document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  ['groups','policy','form','evidence','approval'].forEach(t => {
+    document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab);
+  });
+  if (tab === 'approval') loadMyApprovals();
+}
+
+// ============ 그룹 ============
+async function loadMyGroups() {
+  try {
+    const data = await api('/api/groups/my');
+    myGroups = data;
+    const tbody = document.querySelector('#groupsTable tbody');
+    tbody.innerHTML = '';
+    data.forEach(g => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${g.groupId}</td><td>${escapeHtml(g.name)}</td><td>${escapeHtml(g.myRoleName || '-')}</td>
+        <td><code>${escapeHtml(g.inviteCode || '')}</code></td><td>${g.activePolicyId ?? '-'}</td>
+        <td><button class="secondary" onclick="openGroupDetail(${g.groupId})">상세</button></td>`;
+      tbody.appendChild(tr);
+    });
+    populateGroupSelects();
+  } catch (e) { toast(e.message, 'error'); }
+}
+function populateGroupSelects() {
+  ['policyGroupSelect','policyListGroup','formGroupSelect','formListGroup','evidGroupSelect','evidListGroup','apprGroupSelect'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">-- 선택 --</option>' +
+      myGroups.map(g => `<option value="${g.groupId}">${escapeHtml(g.name)}</option>`).join('');
+    if (prev) sel.value = prev;
+  });
+}
+async function createGroup() {
+  const name = document.getElementById('newGroupName').value.trim();
+  const rolesStr = document.getElementById('newGroupRoles').value.trim();
+  if (!name || !rolesStr) return toast('그룹명/역할을 입력하세요', 'error');
+  const roles = rolesStr.split(',').map(r => r.trim()).filter(Boolean);
+  try {
+    await api('/api/groups', { method: 'POST', body: JSON.stringify({ name, roles }) });
+    toast('그룹 생성 완료', 'success');
+    document.getElementById('newGroupName').value = '';
+    document.getElementById('newGroupRoles').value = '';
+    loadMyGroups();
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function joinGroup() {
+  const code = document.getElementById('inviteCode').value.trim();
+  if (!code) return toast('초대코드를 입력하세요', 'error');
+  try {
+    await api('/api/groups/join/' + encodeURIComponent(code), { method: 'POST' });
+    toast('그룹 가입 완료', 'success');
+    document.getElementById('inviteCode').value = '';
+    loadMyGroups();
+  } catch (e) { toast(e.message, 'error'); }
+}
+let currentGroupDetail = null;
+async function openGroupDetail(groupId) {
+  try {
+    const g = await api('/api/groups/' + groupId);
+    currentGroupDetail = g;
+    document.getElementById('gdName').textContent = g.name;
+    const sec = document.getElementById('groupDetailSection');
+    sec.classList.remove('hidden');
+    document.getElementById('gdMembers').textContent = `멤버 ${g.members?.length ?? 0}명 · 초대코드: ${g.inviteCode}`;
+    const tbody = document.querySelector('#gdMembersTable tbody');
+    tbody.innerHTML = '';
+    (g.members || []).forEach(m => {
+      const roleOptions = (g.roles || []).map(r =>
+        `<option value="${r.roleId}" ${m.roleName === r.roleName ? 'selected' : ''}>${escapeHtml(r.roleName)} (순서 ${r.approvalOrder})</option>`).join('');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.email)}</td>
+        <td><select onchange="assignRole(${groupId}, ${m.userId}, this.value)">${roleOptions}</select></td>
+        <td><button class="danger" onclick="kickMember(${groupId}, ${m.userId})">강퇴</button></td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function assignRole(groupId, userId, roleId) {
+  try {
+    await api(`/api/groups/${groupId}/members/role`, { method: 'PUT',
+      body: JSON.stringify({ userId, roleId: Number(roleId) }) });
+    toast('역할 변경 완료', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function kickMember(groupId, userId) {
+  if (!confirm('정말 강퇴하시겠습니까?')) return;
+  try {
+    await api(`/api/groups/${groupId}/members/${userId}`, { method: 'DELETE' });
+    toast('강퇴 완료', 'success');
+    openGroupDetail(groupId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function addRole() {
+  if (!currentGroupDetail) return;
+  const roleName = document.getElementById('gdNewRoleName').value.trim();
+  const approvalOrder = parseInt(document.getElementById('gdNewRoleOrder').value);
+  if (!roleName || isNaN(approvalOrder)) return toast('역할명/순서를 입력하세요', 'error');
+  try {
+    await api(`/api/groups/${currentGroupDetail.groupId}/roles`, { method: 'POST',
+      body: JSON.stringify({ roleName, approvalOrder }) });
+    toast('역할 추가 완료', 'success');
+    document.getElementById('gdNewRoleName').value = '';
+    document.getElementById('gdNewRoleOrder').value = '';
+    openGroupDetail(currentGroupDetail.groupId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ============ 규정책 ============
+async function uploadPolicy() {
+  const groupId = document.getElementById('policyGroupSelect').value;
+  const policyName = document.getElementById('policyName').value.trim();
+  const file = document.getElementById('policyFile').files[0];
+  if (!groupId || !policyName || !file) return toast('모두 입력하세요', 'error');
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('policyName', policyName);
+  fd.append('groupId', groupId);
+  try {
+    await api('/api/policies/upload', { method: 'POST', body: fd });
+    toast('규정책 업로드 완료', 'success');
+    loadPolicies();
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function loadPolicies() {
+  const groupId = document.getElementById('policyListGroup').value;
+  if (!groupId) return;
+  try {
+    const data = await api('/api/policies?groupId=' + groupId);
+    const tbody = document.querySelector('#policyTable tbody');
+    tbody.innerHTML = '';
+    data.forEach(p => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${p.policyId}</td><td>${escapeHtml(p.policyName)}</td>
+        <td>${p.createdAt?.slice(0,16).replace('T',' ') ?? ''}</td>
+        <td><button class="danger" onclick="deletePolicy(${p.policyId})">삭제</button></td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function deletePolicy(id) {
+  if (!confirm('삭제하시겠습니까?')) return;
+  try { await api('/api/policies/' + id, { method: 'DELETE' }); toast('삭제 완료', 'success'); loadPolicies(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+// ============ 양식지 ============
+async function uploadForm() {
+  const groupId = document.getElementById('formGroupSelect').value;
+  const formName = document.getElementById('formName').value.trim();
+  const paymentType = document.getElementById('formPaymentType').value;
+  const file = document.getElementById('formFile').files[0];
+  if (!groupId || !formName || !file) return toast('그룹/이름/파일 필수', 'error');
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('formName', formName);
+  fd.append('paymentType', paymentType);
+  fd.append('groupId', groupId);
+  try {
+    await api('/api/forms/upload', { method: 'POST', body: fd });
+    toast('양식지 업로드 완료', 'success');
+    loadForms();
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function loadForms() {
+  const groupId = document.getElementById('formListGroup').value;
+  if (!groupId) return;
+  try {
+    const data = await api('/api/forms?groupId=' + groupId);
+    const tbody = document.querySelector('#formTable tbody');
+    tbody.innerHTML = '';
+    (data || []).forEach(f => {
+      let fieldCount = 0;
+      try { fieldCount = JSON.parse(f.formFields || '[]').length; } catch(_) {}
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${f.formId ?? f.id}</td><td>${escapeHtml(f.formName)}</td>
+        <td>${escapeHtml(f.paymentType || 'BOTH')}</td><td>${fieldCount}</td>
+        <td><button class="danger" onclick="deleteForm(${f.formId ?? f.id})">삭제</button></td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function deleteForm(id) {
+  if (!confirm('삭제하시겠습니까?')) return;
+  try { await api('/api/forms/' + id, { method: 'DELETE' }); toast('삭제 완료', 'success'); loadForms(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+// ============ 증빙서류 ============
+async function analyzeEvidence() {
+  const groupId = document.getElementById('evidGroupSelect').value;
+  const file = document.getElementById('evidFile').files[0];
+  if (!groupId || !file) return toast('그룹/파일 필수', 'error');
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('groupId', groupId);
+  try {
+    const data = await api('/api/evidence/analyze', { method: 'POST', body: fd });
+    evidCache = { evidenceId: data.evidenceId, availableForms: data.availableForms, paymentType: data.paymentType, groupId };
+    document.getElementById('evidIdShow').textContent = data.evidenceId;
+    document.getElementById('evidPaymentType').textContent = data.paymentType;
+    const box = document.getElementById('evidAvailableForms');
+    box.innerHTML = (data.availableForms || []).map(f =>
+      `<label style="display:block;margin:4px 0"><input type="checkbox" value="${f.formId}" class="evid-form-cb"> ${escapeHtml(f.formName)} (${escapeHtml(f.paymentType)}, 필드 ${f.fields?.length ?? 0}개)</label>`
+    ).join('') || '<div class="muted">사용 가능한 양식지가 없습니다</div>';
+    document.getElementById('evidResult').classList.remove('hidden');
+    document.getElementById('evidFillResult').classList.add('hidden');
+    loadEvidence();
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function fillFields() {
+  if (!evidCache) return;
+  const formIds = [...document.querySelectorAll('.evid-form-cb:checked')].map(cb => Number(cb.value));
+  if (formIds.length === 0) return toast('양식지를 선택하세요', 'error');
+  try {
+    const data = await api(`/api/evidence/${evidCache.evidenceId}/fill`, {
+      method: 'POST', body: JSON.stringify({ formIds })
+    });
+    evidCache.fillResults = data.results;
+    renderFillResults(data.results);
+    document.getElementById('evidFillResult').classList.remove('hidden');
+  } catch (e) { toast(e.message, 'error'); }
+}
+function renderFillResults(results) {
+  const box = document.getElementById('evidFillForms');
+  box.innerHTML = '';
+  results.forEach(r => {
+    const div = document.createElement('div');
+    div.style.cssText = 'border:1px solid #ddd;padding:10px;margin-bottom:10px;border-radius:4px';
+    div.innerHTML = `<h3 style="font-size:13px;margin-bottom:8px">${escapeHtml(r.formName)} (formId=${r.formId})</h3>`;
+    const filled = r.filledFields || {};
+    const missing = r.missingFields || [];
+    [...Object.keys(filled), ...missing].forEach(key => {
+      const row = document.createElement('div');
+      row.className = 'field-row';
+      const isMissing = missing.includes(key);
+      row.innerHTML = `<label>${escapeHtml(key)}${isMissing ? '<span class="missing-tag">누락</span>' : ''}</label>
+        <input type="text" data-form-id="${r.formId}" data-field="${escapeHtml(key)}" value="${escapeHtml(filled[key] || '')}">`;
+      div.appendChild(row);
+    });
+    box.appendChild(div);
+  });
+}
+function collectFinalFields() {
+  const map = {}; // formId -> {filled, user}
+  (evidCache.fillResults || []).forEach(r => { map[r.formId] = { filled: { ...r.filledFields }, userInput: {} }; });
+  document.querySelectorAll('#evidFillForms input[data-form-id]').forEach(inp => {
+    const fid = Number(inp.dataset.formId);
+    const key = inp.dataset.field;
+    const val = inp.value;
+    const entry = map[fid];
+    if (entry.filled.hasOwnProperty(key)) entry.filled[key] = val;
+    else entry.userInput[key] = val;
+  });
+  return map;
+}
+async function submitApproval() {
+  if (!evidCache || !evidCache.fillResults || evidCache.fillResults.length === 0)
+    return toast('먼저 필드를 채우세요', 'error');
+  if (evidCache.fillResults.length > 1) {
+    toast('결재는 양식지 1건씩만 가능합니다. 첫 번째 양식으로 진행합니다.', 'info');
+  }
+  const map = collectFinalFields();
+  const firstForm = evidCache.fillResults[0];
+  const merged = { ...map[firstForm.formId].filled, ...map[firstForm.formId].userInput };
+  try {
+    const data = await api('/api/approvals', {
+      method: 'POST', body: JSON.stringify({
+        groupId: Number(evidCache.groupId), evidenceId: evidCache.evidenceId,
+        formId: firstForm.formId, filledFields: merged
+      })
+    });
+    toast('결재 요청 생성 완료 (#' + data.requestId + ')', 'success');
+    switchTab('approval');
+    loadMyApprovals();
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function downloadFinal() {
+  if (!evidCache || !evidCache.fillResults) return toast('먼저 필드를 채우세요', 'error');
+  const map = collectFinalFields();
+  const forms = evidCache.fillResults.map(r => ({
+    formId: r.formId, filledFields: map[r.formId].filled, userInputFields: map[r.formId].userInput
+  }));
+  try {
+    const res = await api(`/api/evidence/${evidCache.evidenceId}/complete`, {
+      method: 'POST', body: JSON.stringify({ forms })
+    });
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+    const fname = m ? decodeURIComponent(m[1]) : 'completed.docx';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = fname; a.click();
+    URL.revokeObjectURL(url);
+    toast('다운로드 시작', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function loadEvidence() {
+  const groupId = document.getElementById('evidListGroup').value;
+  if (!groupId) return;
+  try {
+    const data = await api('/api/evidence?groupId=' + groupId);
+    const tbody = document.querySelector('#evidTable tbody');
+    tbody.innerHTML = '';
+    data.forEach(e => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${e.evidenceId}</td><td>${escapeHtml(e.fileName || '')}</td>
+        <td>${(e.selectedFormIds || []).join(', ') || '-'}</td>
+        <td>${e.createdAt?.slice(0,16).replace('T',' ') ?? ''}</td>
+        <td><button class="danger" onclick="deleteEvidence(${e.evidenceId})">삭제</button></td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function deleteEvidence(id) {
+  if (!confirm('삭제하시겠습니까?')) return;
+  try { await api('/api/evidence/' + id, { method: 'DELETE' }); toast('삭제 완료', 'success'); loadEvidence(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+// ============ 결재 ============
+async function loadMyApprovals() {
+  try {
+    const data = await api('/api/approvals/my');
+    const tbody = document.querySelector('#myApprovalsTable tbody');
+    tbody.innerHTML = '';
+    data.forEach(a => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${a.requestId}</td>
+        <td><span class="status-badge status-${a.status}">${a.status}</span></td>
+        <td>${a.currentApprovalOrder}</td>
+        <td>${a.createdAt?.slice(0,16).replace('T',' ') ?? ''}</td>
+        <td><button class="secondary" onclick="openApproval(${a.requestId})">상세</button></td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function loadGroupApprovals() {
+  const gid = document.getElementById('apprGroupSelect').value;
+  if (!gid) return;
+  try {
+    const data = await api('/api/approvals/group/' + gid);
+    const tbody = document.querySelector('#groupApprovalsTable tbody');
+    tbody.innerHTML = '';
+    data.forEach(a => {
+      const myStep = (a.steps || []).find(s => s.approverName === currentUser.name && s.approvalOrder === a.currentApprovalOrder);
+      const myAction = myStep ? myStep.action : '-';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${a.requestId}</td><td>${escapeHtml(a.steps?.[0]?.approverName || '')}</td>
+        <td><span class="status-badge status-${a.status}">${a.status}</span></td>
+        <td>${a.currentApprovalOrder} (내 상태: ${myAction})</td>
+        <td><button class="secondary" onclick="openApproval(${a.requestId})">상세</button></td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function openApproval(requestId) {
+  try {
+    const [detail, history] = await Promise.all([
+      api('/api/approvals/' + requestId),
+      api('/api/approvals/' + requestId + '/history')
+    ]);
+    document.getElementById('apprDetailSection').classList.remove('hidden');
+    document.getElementById('apprDetailId').textContent = requestId;
+    renderApprovalDetail(detail, history);
+  } catch (e) { toast(e.message, 'error'); }
+}
+function renderApprovalDetail(d, h) {
+  const content = document.getElementById('apprDetailContent');
+  const canApprove = d.status === 'IN_PROGRESS' && (d.steps || []).some(s =>
+    s.approverName === currentUser.name && s.approvalOrder === d.currentApprovalOrder && s.action === 'PENDING');
+  const canResubmit = d.status === 'REJECTED';
+
+  let stepsHtml = '<ul class="steps-list">' + (d.steps || []).map(s =>
+    `<li>순서 ${s.approvalOrder} / ${escapeHtml(s.roleName)} / ${escapeHtml(s.approverName)}
+      <span class="status-badge status-${s.action}">${s.action}</span>
+      ${s.comment ? ' - ' + escapeHtml(s.comment) : ''}</li>`).join('') + '</ul>';
+
+  let fieldsHtml = '';
+  Object.entries(d.filledFields || {}).forEach(([k,v]) => {
+    fieldsHtml += `<div class="field-row"><label>${escapeHtml(k)}</label>
+      <input type="text" data-fld="${escapeHtml(k)}" value="${escapeHtml(v || '')}" ${d.status !== 'IN_PROGRESS' ? 'disabled' : ''}></div>`;
+  });
+
+  let editHistHtml = '';
+  (h.editHistory || []).forEach(ent => {
+    editHistHtml += `<div class="history-entry"><b>${escapeHtml(ent.editorName)}</b> · ${ent.editedAt?.slice(0,16).replace('T',' ')}<br>
+      수정 필드: ${diffFields(ent.beforeFields, ent.afterFields)}</div>`;
+  });
+
+  content.innerHTML = `
+    <div>상태: <span class="status-badge status-${d.status}">${d.status}</span> · 현재 단계 순서: ${d.currentApprovalOrder}</div>
+    <h3 style="margin-top:10px;font-size:13px">결재 단계</h3>${stepsHtml}
+    <h3 style="margin-top:10px;font-size:13px">양식지 필드</h3>${fieldsHtml || '<div class="muted">(없음)</div>'}
+    <div class="form-row" style="margin-top:10px">
+      <input id="apprComment" type="text" placeholder="코멘트 (선택)">
+      ${canApprove ? `<button class="success" onclick="approveReq(${d.requestId})">승인</button>
+                     <button class="danger" onclick="rejectReq(${d.requestId})">반려</button>` : ''}
+      ${d.status === 'IN_PROGRESS' ? `<button class="primary" onclick="editReq(${d.requestId})">필드 수정</button>` : ''}
+      ${canResubmit ? `<button class="primary" onclick="resubmitReq(${d.requestId})">재요청</button>` : ''}
+    </div>
+    <details><summary>수정 이력 ${(h.editHistory || []).length}건</summary>${editHistHtml || '<div class="muted">(없음)</div>'}</details>
+  `;
+}
+function diffFields(before, after) {
+  const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  const diffs = [];
+  keys.forEach(k => {
+    const b = (before || {})[k], a = (after || {})[k];
+    if (b !== a) diffs.push(`<b>${escapeHtml(k)}</b>: <span class="diff-before">${escapeHtml(b || '')}</span> → <span class="diff-after">${escapeHtml(a || '')}</span>`);
+  });
+  return diffs.length ? diffs.join('<br>') : '(변경 없음)';
+}
+async function approveReq(id) {
+  const comment = document.getElementById('apprComment').value;
+  try { await api(`/api/approvals/${id}/approve`, { method:'POST', body: JSON.stringify({ comment }) });
+    toast('승인 완료', 'success'); openApproval(id); loadMyApprovals(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function rejectReq(id) {
+  const comment = document.getElementById('apprComment').value;
+  if (!comment) return toast('반려 사유를 입력하세요', 'error');
+  try { await api(`/api/approvals/${id}/reject`, { method:'POST', body: JSON.stringify({ comment }) });
+    toast('반려 완료', 'success'); openApproval(id); loadMyApprovals(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function editReq(id) {
+  const filledFields = {};
+  document.querySelectorAll('#apprDetailContent input[data-fld]').forEach(inp => {
+    filledFields[inp.dataset.fld] = inp.value;
+  });
+  try { await api(`/api/approvals/${id}/fields`, { method:'PUT', body: JSON.stringify({ filledFields }) });
+    toast('수정 완료', 'success'); openApproval(id); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function resubmitReq(id) {
+  const filledFields = {};
+  document.querySelectorAll('#apprDetailContent input[data-fld]').forEach(inp => {
+    filledFields[inp.dataset.fld] = inp.value;
+  });
+  try {
+    const r = await api(`/api/approvals/${id}/resubmit`, { method:'POST', body: JSON.stringify({ filledFields }) });
+    toast('재요청 완료 (새 결재 #' + r.requestId + ')', 'success');
+    loadMyApprovals(); openApproval(r.requestId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ============ 초기화 ============
+window.addEventListener('DOMContentLoaded', () => {
+  if (token && currentUser) showApp();
+  else document.getElementById('authView').classList.remove('hidden');
+});
+</script>
+</body>
+</html>
