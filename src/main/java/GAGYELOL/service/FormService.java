@@ -3,9 +3,13 @@ package GAGYELOL.service;
 import GAGYELOL.dto.FormUploadResponse;
 import GAGYELOL.entity.Form;
 import GAGYELOL.entity.User;
+import GAGYELOL.entity.UserGroup;
 import GAGYELOL.repository.FormRepository;
+import GAGYELOL.repository.GroupMemberRepository;
 import GAGYELOL.repository.UserRepository;
 import GAGYELOL.repository.PolicyChunkVectorStore;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +38,7 @@ public class FormService {
 
     private final FormRepository formRepository;
     private final UserRepository userRepository;
+    private final GroupMemberRepository groupMemberRepository;
     private final FormParserService formParserService;
     private final FormAiService formAiService;
     private final EmbeddingService embeddingService;
@@ -154,6 +159,91 @@ public class FormService {
                 .description(description)
                 .paymentType(form.getPaymentType())
                 .fields(fieldList)
+                .build();
+    }
+
+    // ── 1. 양식지 목록 조회 ──────────────────────────────────────────────────
+    @Transactional(readOnly = true)
+    public List<FormUploadResponse> getFormsByGroup(Long groupId, Long userId) {
+        UserGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "그룹을 찾을 수 없습니다."));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
+
+        if (!groupMemberRepository.existsByGroupAndUser(group, user)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "해당 그룹의 멤버가 아닙니다.");
+        }
+
+        return formRepository.findByGroup(group).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    // ── 2. 양식지 단건 조회 ──────────────────────────────────────────────────
+    @Transactional(readOnly = true)
+    public FormUploadResponse getForm(Long formId, Long userId) {
+        Form form = formRepository.findById(formId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "양식지를 찾을 수 없습니다."));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
+
+        if (form.getGroup() == null) {
+            if (!form.getUser().getId().equals(userId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "접근 권한이 없습니다.");
+            }
+        } else {
+            if (!groupMemberRepository.existsByGroupAndUser(form.getGroup(), user)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "해당 그룹의 멤버가 아닙니다.");
+            }
+        }
+
+        return toResponse(form);
+    }
+
+    // ── 3. 양식지 삭제 ───────────────────────────────────────────────────────
+    public void deleteForm(Long formId, Long userId) {
+        Form form = formRepository.findById(formId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "양식지를 찾을 수 없습니다."));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
+
+        if (form.getGroup() == null) {
+            if (!form.getUser().getId().equals(userId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "접근 권한이 없습니다.");
+            }
+        } else {
+            if (!groupMemberRepository.existsByGroupAndUser(form.getGroup(), user)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "해당 그룹의 멤버가 아닙니다.");
+            }
+        }
+
+        try {
+            Files.deleteIfExists(Paths.get(form.getFilePath()));
+            log.info("양식지 파일 삭제 완료: {}", form.getFilePath());
+        } catch (IOException e) {
+            log.warn("양식지 파일 삭제 실패 (DB는 계속 삭제): {}", e.getMessage());
+        }
+
+        formRepository.delete(form);
+        log.info("양식지 삭제 완료 - formId={}", formId);
+    }
+
+    // ── 공통: Form → FormUploadResponse 변환 ────────────────────────────────
+    private FormUploadResponse toResponse(Form form) {
+        List<String> fieldList = List.of();
+        try {
+            fieldList = objectMapper.readValue(
+                    form.getFormFields() != null ? form.getFormFields() : "[]",
+                    new TypeReference<>() {});
+        } catch (Exception ignored) {}
+
+        return FormUploadResponse.builder()
+                .formId(form.getId())
+                .formName(form.getFormName())
+                .description(form.getDescription())
+                .paymentType(form.getPaymentType())
+                .fields(fieldList)
+                .createdAt(form.getCreatedAt())
                 .build();
     }
 
