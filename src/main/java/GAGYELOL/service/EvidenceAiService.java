@@ -1,46 +1,48 @@
 package GAGYELOL.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 파트 C 소유 - 증빙서류 관련 AI 기능
- * 결제유형 분류, 필드 자동 채우기, 양식지 선택
+ * Upstage Information Extract API를 사용해 파일에서 직접 구조화된 데이터를 추출합니다.
  */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class EvidenceAiService {
 
+    private final UpstageIeClient upstageIeClient;
     private final OpenAiClient openAiClient;
 
     /**
-     * 증빙서류 내용을 보고 카드/현금 결제 유형을 분류합니다.
-     * 반환값: "CARD" 또는 "CASH"
+     * 증빙서류 파일에서 결제 수단을 분류합니다.
+     * Upstage IE에 파일을 직접 전송해 CARD / CASH를 반환합니다.
      */
-    public String classifyPaymentType(String evidenceText) {
-        String prompt = String.format("""
-                아래 증빙서류 내용을 보고 결제 수단을 분류하세요.
+    public String classifyPaymentType(byte[] fileBytes, String mimeType) {
+        Map<String, Object> schema = Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "paymentType", Map.of(
+                                "type", "string",
+                                "description", "결제 수단 분류. 신용카드/체크카드 결제는 CARD, 현금/계좌이체/현금영수증은 CASH"
+                        )
+                ),
+                "required", List.of("paymentType")
+        );
 
-                [증빙서류 내용]
-                %s
-
-                분류 기준:
-                - 카드 결제: 신용카드, 체크카드, 카드 매출전표, 카드승인번호 등이 언급된 경우 → "CARD"
-                - 현금 결제: 현금영수증, 현금 지출, 계좌이체, 무통장입금 등이 언급된 경우 → "CASH"
-                - 판단이 어려우면 내용상 더 가까운 쪽으로 분류하세요.
-
-                반드시 다음 JSON 형식으로만 응답하세요:
-                {"paymentType": "CARD" 또는 "CASH", "reason": "판단 근거를 한 문장으로"}
-                """, evidenceText);
-
-        log.info("결제유형 분류 GPT 요청");
+        log.info("Upstage IE 결제유형 분류 요청");
         try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            String result = openAiClient.chatJson(prompt);
+            String result = upstageIeClient.extract(fileBytes, mimeType, schema);
+            ObjectMapper mapper = new ObjectMapper();
             return mapper.readTree(result).path("paymentType").asText("CASH");
         } catch (Exception e) {
             throw new RuntimeException("결제 유형 분류 실패: " + e.getMessage(), e);
@@ -48,37 +50,45 @@ public class EvidenceAiService {
     }
 
     /**
-     * 증빙서류 내용과 양식지 필드 목록을 바탕으로 각 필드에 채울 값을 추출합니다.
+     * 증빙서류 파일에서 양식지 필드 값을 추출합니다.
+     * Upstage IE에 파일과 필드 스키마를 전송해 구조화된 결과를 반환합니다.
      * 반환 형식: {"filled": {"필드명": "값"}, "missing": ["필드명", ...]}
      */
-    public String fillFormFields(String evidenceText, List<String> formFields) {
-        String fieldList = String.join("\n", formFields.stream().map(f -> "- " + f).toList());
-        String prompt = String.format("""
-                당신은 회계 처리 전문가입니다.
+    public String fillFormFields(byte[] fileBytes, String mimeType, List<String> formFields) {
+        Map<String, Object> properties = new LinkedHashMap<>();
+        for (String field : formFields) {
+            properties.put(field, Map.of(
+                    "type", "string",
+                    "description", field + " 항목의 값"
+            ));
+        }
 
-                아래는 작성해야 할 양식지의 필드 목록입니다.
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("properties", properties);
 
-                [양식지 필드 목록]
-                %s
+        log.info("Upstage IE 필드 추출 요청 - 필드 수: {}", formFields.size());
+        try {
+            String result = upstageIeClient.extract(fileBytes, mimeType, schema);
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode node = mapper.readTree(result);
 
-                이제 아래 증빙서류를 살펴보고, 위 각 필드에 해당하는 값을 찾아 채우세요.
+            Map<String, String> filled = new LinkedHashMap<>();
+            List<String> missing = new ArrayList<>();
 
-                [증빙서류 내용]
-                %s
+            for (String field : formFields) {
+                JsonNode value = node.path(field);
+                if (value.isMissingNode() || value.isNull() || value.asText().isBlank()) {
+                    missing.add(field);
+                } else {
+                    filled.put(field, value.asText());
+                }
+            }
 
-                작성 규칙:
-                - 필드명과 증빙서류의 표현이 달라도 의미가 같으면 채우세요. (예: "품목" → "상품명", "구매일" → "날짜", "합계" → "금액")
-                - 증빙서류에 값이 존재하지 않는 경우에만 "missing"에 넣으세요. 표현이 다른 것은 missing이 아닙니다.
-                - 값을 아예 없는 정보로 만들어내는 것은 하지 마세요.
-                - 날짜는 YYYY-MM-DD 형식으로 표기하세요.
-                - 금액은 숫자만(쉼표·원 표시 없이) 표기하세요.
-
-                반드시 다음 JSON 형식으로만 응답하세요:
-                {"filled": {"필드명": "값", ...}, "missing": ["필드명", ...]}
-                """, fieldList, evidenceText);
-
-        log.info("필드 자동 채우기 GPT 요청 - 필드 수: {}", formFields.size());
-        return openAiClient.chatJson(prompt);
+            return mapper.writeValueAsString(Map.of("filled", filled, "missing", missing));
+        } catch (Exception e) {
+            throw new RuntimeException("필드 추출 실패: " + e.getMessage(), e);
+        }
     }
 
     /**
