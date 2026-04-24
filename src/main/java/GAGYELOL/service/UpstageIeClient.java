@@ -21,7 +21,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class UpstageIeClient {
 
-    private static final String URL = "https://api.upstage.ai/v1/chat/completions";
+    private static final String URL = "https://api.upstage.ai/v1/information-extraction";
 
     @Value("${upstage.api-key}")
     private String apiKey;
