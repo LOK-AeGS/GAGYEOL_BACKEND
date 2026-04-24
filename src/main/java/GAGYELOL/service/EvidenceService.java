@@ -28,7 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -51,11 +50,8 @@ public class EvidenceService {
     private final UserRepository userRepository;
     private final UserGroupRepository groupRepository;
     private final PolicyChunkVectorStore vectorStore;
-    private final PdfParserService pdfParserService;
-    private final FormParserService formParserService;
     private final EmbeddingService embeddingService;
     private final EvidenceAiService evidenceAiService;
-    private final PolicyAiService policyAiService;
     private final FormFillService formFillService;
     private final ObjectMapper objectMapper;
 
@@ -124,22 +120,25 @@ public class EvidenceService {
         String fileName = file.getOriginalFilename();
         log.info("증빙서류 저장 완료: {}", filePath);
 
-        // 2. 텍스트 추출
-        String evidenceText = extractText(filePath, fileName);
-        log.info("증빙서류 텍스트 추출 완료 - {}자", evidenceText.length());
-
-        // 3. 결제 유형 분류 (CARD / CASH)
-        String paymentType = evidenceAiService.classifyPaymentType(evidenceText);
+        // 2. Upstage IE로 결제 유형 분류 (파일 직접 전송, OCR 단계 불필요)
+        String mimeType = resolveMimeType(fileName);
+        byte[] fileBytes;
+        try {
+            fileBytes = file.getBytes();
+        } catch (IOException e) {
+            throw new RuntimeException("파일 읽기 실패", e);
+        }
+        String paymentType = evidenceAiService.classifyPaymentType(fileBytes, mimeType);
         log.info("결제 유형 분류 결과: {}", paymentType);
 
-        // 4. 증빙서류 저장
+        // 3. 증빙서류 저장
         Evidence evidence = evidenceRepository.save(Evidence.builder()
                 .user(user)
                 .group(group)
                 .policyId(policyId)
                 .filePath(filePath)
                 .fileName(fileName)
-                .extractedText(evidenceText)
+                .extractedText("")
                 .build());
 
         // 5. 결제 유형에 맞는 양식지 목록 반환 (사용자가 선택)
@@ -166,48 +165,23 @@ public class EvidenceService {
         return EvidenceAnalysisResponse.builder()
                 .evidenceId(evidence.getId())
                 .paymentType(paymentType)
-                .extractedText(evidenceText)
+                .extractedText("")
                 .availableForms(formSummaries)
                 .build();
     }
 
-    private String extractText(String filePath, String fileName) {
-        String lower = fileName == null ? "" : fileName.toLowerCase();
-        try {
-            if (lower.endsWith(".pdf")) {
-                byte[] bytes = Files.readAllBytes(Paths.get(filePath));
-                String text = pdfParserService.extractText(new File(filePath));
-                if (pdfParserService.isImageBasedPdf(text)) {
-                    log.info("이미지 기반 PDF - Vision API 사용");
-                    List<String> images = pdfParserService.extractPageImagesAsBase64(bytes);
-                    StringBuilder sb = new StringBuilder();
-                    for (int i = 0; i < images.size(); i++) {
-                        log.info("페이지 {}/{} Vision 처리 중...", i + 1, images.size());
-                        sb.append(policyAiService.extractTextFromImage(images.get(i))).append("\n");
-                    }
-                    return sb.toString();
-                }
-                return text;
-            } else if (lower.endsWith(".docx") || lower.endsWith(".xls") || lower.endsWith(".xlsx")) {
-                return formParserService.extractText(new File(filePath));
-            } else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
-                return extractTextFromImageFile(filePath, "image/jpeg");
-            } else if (lower.endsWith(".png")) {
-                return extractTextFromImageFile(filePath, "image/png");
-            } else if (lower.endsWith(".webp")) {
-                return extractTextFromImageFile(filePath, "image/webp");
-            } else {
-                throw new IllegalArgumentException("지원하지 않는 파일 형식입니다: " + fileName);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("텍스트 추출 실패", e);
-        }
-    }
-
-    private String extractTextFromImageFile(String filePath, String mimeType) throws IOException {
-        byte[] bytes = Files.readAllBytes(Paths.get(filePath));
-        String base64 = java.util.Base64.getEncoder().encodeToString(bytes);
-        return policyAiService.extractTextFromImage(base64, mimeType);
+    private String resolveMimeType(String fileName) {
+        if (fileName == null) return "application/octet-stream";
+        String lower = fileName.toLowerCase();
+        if (lower.endsWith(".pdf"))  return "application/pdf";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".png"))  return "image/png";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (lower.endsWith(".hwp"))  return "application/x-hwp";
+        if (lower.endsWith(".hwpx")) return "application/hwpx";
+        throw new IllegalArgumentException("지원하지 않는 파일 형식입니다: " + fileName);
     }
 
     /**
@@ -250,7 +224,15 @@ public class EvidenceService {
                 continue;
             }
 
-            String gptResult = evidenceAiService.fillFormFields(evidence.getExtractedText(), formFields);
+            // Upstage IE로 파일에서 직접 필드 추출
+            byte[] evidenceBytes;
+            try {
+                evidenceBytes = Files.readAllBytes(Paths.get(evidence.getFilePath()));
+            } catch (IOException e) {
+                throw new RuntimeException("증빙서류 파일 읽기 실패: " + e.getMessage(), e);
+            }
+            String evidenceMimeType = resolveMimeType(evidence.getFileName());
+            String gptResult = evidenceAiService.fillFormFields(evidenceBytes, evidenceMimeType, formFields);
             log.info("GPT 필드 채우기 결과 (formId={}): {}", formId, gptResult);
 
             Map<String, String> filledFields = new LinkedHashMap<>();
