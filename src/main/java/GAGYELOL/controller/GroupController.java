@@ -4,6 +4,8 @@ import GAGYELOL.config.JwtUtil;
 import GAGYELOL.dto.group.AssignRoleRequest;
 import GAGYELOL.dto.group.CreateGroupRequest;
 import GAGYELOL.dto.group.GroupResponse;
+import GAGYELOL.dto.group.RoleRequest;
+import jakarta.validation.Valid;
 import GAGYELOL.service.GroupService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -70,6 +72,38 @@ public class GroupController {
             @RequestBody AssignRoleRequest request) {
         Long userId = extractUserId(token);
         return ResponseEntity.ok(groupService.assignRole(userId, groupId, request));
+    }
+
+    // 역할 추가 (대표자만 가능)
+    @PostMapping("/{groupId}/roles")
+    public ResponseEntity<GroupResponse> addRole(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long groupId,
+            @Valid @RequestBody RoleRequest request) {
+        Long userId = extractUserId(token);
+        return ResponseEntity.ok(groupService.addRole(userId, groupId, request));
+    }
+
+    // 역할 이름 수정 (대표자만 가능)
+    @PutMapping("/{groupId}/roles/{roleId}")
+    public ResponseEntity<GroupResponse> updateRole(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long groupId,
+            @PathVariable Long roleId,
+            @Valid @RequestBody RoleRequest request) {
+        Long userId = extractUserId(token);
+        return ResponseEntity.ok(groupService.updateRole(userId, groupId, roleId, request));
+    }
+
+    // 역할 삭제 (대표자만, 해당 역할 멤버 없을 때만 가능)
+    @DeleteMapping("/{groupId}/roles/{roleId}")
+    public ResponseEntity<Void> deleteRole(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long groupId,
+            @PathVariable Long roleId) {
+        Long userId = extractUserId(token);
+        groupService.deleteRole(userId, groupId, roleId);
+        return ResponseEntity.noContent().build();
     }
 
     private Long extractUserId(String token) {
