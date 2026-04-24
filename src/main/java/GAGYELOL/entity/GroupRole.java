@@ -33,4 +33,8 @@ public class GroupRole {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+    public void updateRoleName(String roleName) {
+        this.roleName = roleName;
+    }
 }

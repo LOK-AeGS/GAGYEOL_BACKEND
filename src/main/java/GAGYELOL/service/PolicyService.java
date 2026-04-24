@@ -1,5 +1,6 @@
 package GAGYELOL.service;
 
+import GAGYELOL.dto.PolicyResponse;
 import GAGYELOL.dto.PolicyUploadResponse;
 import GAGYELOL.entity.Policy;
 import GAGYELOL.entity.User;
@@ -106,6 +107,30 @@ public class PolicyService {
                 .chunkCount(chunks.size())
                 .message("규정책 RAG 인덱싱이 완료되었습니다.")
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PolicyResponse> getByGroup(Long groupId) {
+        GAGYELOL.entity.UserGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new IllegalArgumentException("그룹을 찾을 수 없습니다."));
+        return policyRepository.findByGroup(group).stream()
+                .map(PolicyResponse::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public PolicyResponse getById(Long policyId) {
+        Policy policy = policyRepository.findById(policyId)
+                .orElseThrow(() -> new IllegalArgumentException("규정책을 찾을 수 없습니다."));
+        return PolicyResponse.from(policy);
+    }
+
+    public void delete(Long policyId) {
+        Policy policy = policyRepository.findById(policyId)
+                .orElseThrow(() -> new IllegalArgumentException("규정책을 찾을 수 없습니다."));
+        vectorStore.deleteByPolicyId(policyId);
+        policyRepository.delete(policy);
+        log.info("규정책 삭제 완료 - policyId={}", policyId);
     }
 
     private String saveFile(MultipartFile file) {

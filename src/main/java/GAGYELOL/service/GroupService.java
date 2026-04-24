@@ -3,6 +3,7 @@ package GAGYELOL.service;
 import GAGYELOL.dto.group.AssignRoleRequest;
 import GAGYELOL.dto.group.CreateGroupRequest;
 import GAGYELOL.dto.group.GroupResponse;
+import GAGYELOL.dto.group.RoleRequest;
 import GAGYELOL.entity.*;
 import GAGYELOL.repository.*;
 import lombok.extern.slf4j.Slf4j;
@@ -243,6 +244,54 @@ public class GroupService {
         return memberRepository.findByUser(user).stream()
                 .map(m -> getGroupDetail(m.getGroup().getId()))
                 .toList();
+    }
+
+    public GroupResponse addRole(Long ownerId, Long groupId, RoleRequest request) {
+        UserGroup group = findGroup(groupId);
+        validateOwner(ownerId, group);
+
+        if (roleRepository.findByGroupAndApprovalOrder(group, request.getApprovalOrder()).isPresent()) {
+            throw new IllegalArgumentException("이미 존재하는 결재 순서입니다: " + request.getApprovalOrder());
+        }
+
+        roleRepository.save(GroupRole.builder()
+                .group(group)
+                .roleName(request.getRoleName())
+                .approvalOrder(request.getApprovalOrder())
+                .build());
+
+        return getGroupDetail(groupId);
+    }
+
+    public GroupResponse updateRole(Long ownerId, Long groupId, Long roleId, RoleRequest request) {
+        UserGroup group = findGroup(groupId);
+        validateOwner(ownerId, group);
+
+        GroupRole role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new IllegalArgumentException("역할을 찾을 수 없습니다."));
+        if (!role.getGroup().getId().equals(groupId)) {
+            throw new IllegalArgumentException("해당 그룹의 역할이 아닙니다.");
+        }
+
+        role.updateRoleName(request.getRoleName());
+        return getGroupDetail(groupId);
+    }
+
+    public void deleteRole(Long ownerId, Long groupId, Long roleId) {
+        UserGroup group = findGroup(groupId);
+        validateOwner(ownerId, group);
+
+        GroupRole role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new IllegalArgumentException("역할을 찾을 수 없습니다."));
+        if (!role.getGroup().getId().equals(groupId)) {
+            throw new IllegalArgumentException("해당 그룹의 역할이 아닙니다.");
+        }
+        if (memberRepository.existsByRole(role)) {
+            throw new IllegalArgumentException("해당 역할을 가진 멤버가 있어 삭제할 수 없습니다.");
+        }
+
+        roleRepository.delete(role);
+        log.info("역할 삭제 완료 - groupId={}, roleId={}", groupId, roleId);
     }
 
     private String generateInviteCode() {

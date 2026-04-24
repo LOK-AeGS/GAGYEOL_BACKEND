@@ -41,6 +41,10 @@ public class PolicyChunkVectorStore {
         );
     }
 
+    public void deleteByPolicyId(Long policyId) {
+        jdbcTemplate.update("DELETE FROM policy_chunk WHERE policy_id = ?", policyId);
+    }
+
     private String toVectorString(float[] embedding) {
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < embedding.length; i++) {
