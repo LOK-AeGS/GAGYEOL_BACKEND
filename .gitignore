@@ -49,3 +49,10 @@ test_policy.pdf
 *.xlsx
 *.docx
 *.hwp
+*.pptx
+
+### Logs ###
+*.log
+
+### Temp SQL ###
+tmp_*.sql

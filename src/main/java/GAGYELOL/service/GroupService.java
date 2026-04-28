@@ -118,7 +118,11 @@ public class GroupService {
         boolean anyPending = sameOrderSteps.stream().anyMatch(s -> "PENDING".equals(s.getAction()));
         if (anyPending) return;
 
-        boolean anyApproved = sameOrderSteps.stream().anyMatch(s -> "APPROVED".equals(s.getAction()));
+        // approve()와 동일하게 CANCELED 제외 후 전원 APPROVED 여부 체크
+        List<ApprovalStep> activeSteps = sameOrderSteps.stream()
+                .filter(s -> !"CANCELED".equals(s.getAction()))
+                .toList();
+        boolean allApproved = !activeSteps.isEmpty() && activeSteps.stream().allMatch(s -> "APPROVED".equals(s.getAction()));
 
         List<GroupRole> nextRoles = roleRepository
                 .findByGroupAndApprovalOrderGreaterThanOrderByApprovalOrderAsc(
@@ -126,7 +130,7 @@ public class GroupService {
 
         if (nextRoles.isEmpty()) {
             // 마지막 단계였으면 승인/취소 여부에 따라 최종 처리
-            request.updateStatus(anyApproved ? "APPROVED" : "CANCELED");
+            request.updateStatus(allApproved ? "APPROVED" : "CANCELED");
             log.info("결재 최종 처리 (멤버 추방) - requestId={}, status={}", request.getId(), request.getStatus());
         } else {
             // 다음 단계로 진행
