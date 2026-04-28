@@ -4,6 +4,7 @@ import GAGYELOL.config.JwtUtil;
 import GAGYELOL.dto.group.AssignRoleRequest;
 import GAGYELOL.dto.group.CreateGroupRequest;
 import GAGYELOL.dto.group.GroupResponse;
+import GAGYELOL.dto.group.PayerInfoRequest;
 import GAGYELOL.dto.group.RoleRequest;
 import jakarta.validation.Valid;
 import GAGYELOL.service.GroupService;
@@ -93,6 +94,16 @@ public class GroupController {
             @Valid @RequestBody RoleRequest request) {
         Long userId = extractUserId(token);
         return ResponseEntity.ok(groupService.updateRole(userId, groupId, roleId, request));
+    }
+
+    // 지출인 정보 등록/수정 (대표자만 가능)
+    @PutMapping("/{groupId}/payer-info")
+    public ResponseEntity<GroupResponse> updatePayerInfo(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long groupId,
+            @RequestBody PayerInfoRequest request) {
+        Long userId = extractUserId(token);
+        return ResponseEntity.ok(groupService.updatePayerInfo(userId, groupId, request));
     }
 
     // 역할 삭제 (대표자만, 해당 역할 멤버 없을 때만 가능)

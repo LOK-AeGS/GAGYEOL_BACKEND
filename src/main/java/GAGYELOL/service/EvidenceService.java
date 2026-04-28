@@ -242,10 +242,23 @@ public class EvidenceService {
             Map<String, String> filledFields = new LinkedHashMap<>();
             List<String> missingFields = new ArrayList<>();
 
+            // [경로 0] 지출인 필드 → 그룹 등록 지출인 정보로 사전 채우기
+            List<String> remainingAfterPayer = new ArrayList<>();
+            UserGroup group = evidence.getGroup();
+            for (String field : formFields) {
+                String payerValue = resolvePayerField(field, group);
+                if (payerValue != null) {
+                    filledFields.put(field, payerValue);
+                    log.info("지출인 정보 채우기: {} = {}", field, payerValue);
+                } else {
+                    remainingAfterPayer.add(field);
+                }
+            }
+
             // [경로 1] generatedFields → 사업명 기반 LLM 생성
             String businessName = evidence.getBusinessName();
             List<String> directFields = new ArrayList<>();
-            for (String field : formFields) {
+            for (String field : remainingAfterPayer) {
                 if (generatedFieldSet.contains(field)) {
                     if (businessName != null && !businessName.isBlank()) {
                         String content = formAiService.generateFieldContent(businessName, field);
@@ -259,6 +272,7 @@ public class EvidenceService {
                 }
             }
 
+            // [경로 2] 증빙 파일에서 Upstage IE 추출
             if (!directFields.isEmpty()) {
                 byte[] evidenceBytes;
                 try {
@@ -268,7 +282,6 @@ public class EvidenceService {
                 }
                 String evidenceMimeType = resolveMimeType(evidence.getFileName());
 
-                // [경로 2] 증빙 파일에서 Upstage IE 추출
                 String ieResult = evidenceAiService.fillFormFields(evidenceBytes, evidenceMimeType, directFields);
                 log.info("증빙서류 IE 결과 (formId={}): {}", formId, ieResult);
 
@@ -386,6 +399,15 @@ public class EvidenceService {
         if (input.getFilledFields() != null) allFields.putAll(input.getFilledFields());
         if (input.getUserInputFields() != null) allFields.putAll(input.getUserInputFields());
         return allFields;
+    }
+
+    private String resolvePayerField(String field, UserGroup group) {
+        if (group == null || !field.contains("지출인")) return null;
+        if (field.contains("이름") || field.contains("성명")) return group.getPayerName();
+        if (field.contains("소속")) return group.getPayerAffiliation();
+        if (field.contains("학번") || field.contains("사번")) return group.getPayerStudentId();
+        if (field.contains("전화") || field.contains("연락")) return group.getPayerPhone();
+        return null;
     }
 
     private String buildFormListDescription(List<Form> forms) {

@@ -32,11 +32,30 @@ public class UserGroup {
     @JoinColumn(name = "active_policy_id")
     private Policy activePolicy;
 
+    @Column(name = "payer_name", length = 100)
+    private String payerName;
+
+    @Column(name = "payer_affiliation", length = 200)
+    private String payerAffiliation;
+
+    @Column(name = "payer_student_id", length = 50)
+    private String payerStudentId;
+
+    @Column(name = "payer_phone", length = 50)
+    private String payerPhone;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
     public void updateActivePolicy(Policy policy) {
         this.activePolicy = policy;
+    }
+
+    public void updatePayerInfo(String name, String affiliation, String studentId, String phone) {
+        this.payerName = name;
+        this.payerAffiliation = affiliation;
+        this.payerStudentId = studentId;
+        this.payerPhone = phone;
     }
 }
