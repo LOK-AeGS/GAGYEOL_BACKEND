@@ -44,6 +44,12 @@ public class Evidence {
     @Column(name = "select_reason", columnDefinition = "TEXT")
     private String selectReason;
 
+    @Column(name = "business_name")
+    private String businessName;
+
+    @Column(name = "recipient_image_path")
+    private String recipientImagePath;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

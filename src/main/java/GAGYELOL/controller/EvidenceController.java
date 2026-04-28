@@ -46,10 +46,12 @@ public class EvidenceController {
     public ResponseEntity<EvidenceAnalysisResponse> analyze(
             @RequestHeader("Authorization") String token,
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "groupId", required = false) Long groupId
+            @RequestParam(value = "groupId", required = false) Long groupId,
+            @RequestParam(value = "businessName", required = false) String businessName,
+            @RequestParam(value = "recipientImage", required = false) MultipartFile recipientImage
     ) {
         Long userId = jwtUtil.extractUserId(token.replace("Bearer ", ""));
-        return ResponseEntity.ok(evidenceService.analyze(file, userId, groupId));
+        return ResponseEntity.ok(evidenceService.analyze(file, userId, groupId, businessName, recipientImage));
     }
 
     @PostMapping("/{evidenceId}/fill")

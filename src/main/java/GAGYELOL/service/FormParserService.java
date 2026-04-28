@@ -2,15 +2,17 @@ package GAGYELOL.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xwpf.usermodel.XWPFDocument;
-import org.apache.poi.xwpf.usermodel.XWPFParagraph;
-import org.apache.poi.xwpf.usermodel.XWPFTable;
-import org.apache.poi.xwpf.usermodel.XWPFTableRow;
+import org.apache.poi.xwpf.usermodel.*;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTcPr;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.STMerge;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Service
 @Slf4j
@@ -36,18 +38,49 @@ public class FormParserService {
             }
 
             for (XWPFTable table : doc.getTables()) {
+                // 컬럼별 마지막 텍스트 추적 — 세로 병합 셀 반복 출력용
+                Map<Integer, String> lastCellText = new HashMap<>();
+
                 for (XWPFTableRow row : table.getRows()) {
-                    row.getTableCells().forEach(cell -> {
+                    List<XWPFTableCell> cells = row.getTableCells();
+                    for (int i = 0; i < cells.size(); i++) {
+                        XWPFTableCell cell = cells.get(i);
                         String text = cell.getText().trim();
+
+                        if (isVMergeContinuation(cell)) {
+                            // 세로 병합 연속 셀 → 상위 행의 레이블 재사용
+                            text = lastCellText.getOrDefault(i, "");
+                        } else {
+                            if (!text.isEmpty()) {
+                                lastCellText.put(i, text);
+                            } else {
+                                lastCellText.remove(i);
+                            }
+                        }
+
                         if (!text.isEmpty()) {
                             sb.append(text).append("\t");
+                        } else {
+                            sb.append("\t");
                         }
-                    });
+                    }
                     sb.append("\n");
                 }
             }
 
             return sb.toString();
+        }
+    }
+
+    private boolean isVMergeContinuation(XWPFTableCell cell) {
+        try {
+            CTTcPr tcPr = cell.getCTTc().getTcPr();
+            if (tcPr == null || tcPr.getVMerge() == null) return false;
+            // vMerge 속성이 있고 val=restart가 아니면 연속 셀
+            STMerge.Enum val = tcPr.getVMerge().getVal();
+            return val == null || val != STMerge.RESTART;
+        } catch (Exception e) {
+            return false;
         }
     }
 

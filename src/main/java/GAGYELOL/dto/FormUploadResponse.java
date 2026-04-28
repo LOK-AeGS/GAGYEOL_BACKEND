@@ -14,5 +14,6 @@ public class FormUploadResponse {
     private String description;
     private String paymentType;
     private List<String> fields;
+    private List<String> generatedFields; // LLM으로 사업명 기반 생성할 필드 목록
     private LocalDateTime createdAt;
 }
