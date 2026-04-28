@@ -77,8 +77,8 @@ public class ApprovalService {
         if (req.getParentRequestId() != null) {
             parentRequest = requestRepository.findById(req.getParentRequestId())
                     .orElseThrow(() -> new IllegalArgumentException("원본 결재요청을 찾을 수 없습니다: " + req.getParentRequestId()));
-            if (!"REJECTED".equals(parentRequest.getStatus())) {
-                throw new IllegalArgumentException("반려된 결재요청만 재결재할 수 있습니다.");
+            if (!"REJECTED".equals(parentRequest.getStatus()) && !"CANCELED".equals(parentRequest.getStatus())) {
+                throw new IllegalArgumentException("반려되거나 취소된 결재요청만 재결재할 수 있습니다.");
             }
         }
 
@@ -87,10 +87,9 @@ public class ApprovalService {
                 ? toJson(req.getFilledFields())
                 : (parentRequest != null ? parentRequest.getFilledFields() : "{}");
 
-        boolean hasNextStep = !higherRoles.isEmpty();
-        int nextOrder = hasNextStep ? higherRoles.get(0).getApprovalOrder() : requesterOrder;
+        // 최고 권한자도 자기 단계에서 명시적 승인 필요 (자동 APPROVED 방지)
+        int nextOrder = !higherRoles.isEmpty() ? higherRoles.get(0).getApprovalOrder() : requesterOrder;
 
-        String status = hasNextStep ? "IN_PROGRESS" : "APPROVED";
         ApprovalRequest approvalRequest = requestRepository.save(ApprovalRequest.builder()
                 .group(group)
                 .requester(requester)
@@ -99,14 +98,12 @@ public class ApprovalService {
                 .parentRequest(parentRequest)
                 .filledFields(filledFieldsJson)
                 .currentApprovalOrder(nextOrder)
-                .status(status)
+                .status("IN_PROGRESS")
                 .build());
 
-        if (hasNextStep) {
-            createPendingSteps(approvalRequest, group, nextOrder);
-        }
+        createPendingSteps(approvalRequest, group, nextOrder);
 
-        log.info("결재요청 생성 - requestId={}, status={}, nextOrder={}", approvalRequest.getId(), status, nextOrder);
+        log.info("결재요청 생성 - requestId={}, nextOrder={}", approvalRequest.getId(), nextOrder);
         return toResponse(approvalRequest);
     }
 
@@ -296,8 +293,8 @@ public class ApprovalService {
     public ApprovalResponse resubmit(Long requesterId, Long requestId, ResubmitRequest req) {
         ApprovalRequest parent = findRequest(requestId);
 
-        if (!"REJECTED".equals(parent.getStatus())) {
-            throw new IllegalArgumentException("반려된 결재요청만 재요청할 수 있습니다. (현재 상태: " + parent.getStatus() + ")");
+        if (!"REJECTED".equals(parent.getStatus()) && !"CANCELED".equals(parent.getStatus())) {
+            throw new IllegalArgumentException("반려되거나 취소된 결재요청만 재요청할 수 있습니다. (현재 상태: " + parent.getStatus() + ")");
         }
         if (!parent.getRequester().getId().equals(requesterId)) {
             throw new IllegalArgumentException("본인이 작성한 결재요청만 재요청할 수 있습니다.");
@@ -320,9 +317,7 @@ public class ApprovalService {
                 ? toJson(req.getFilledFields())
                 : parent.getFilledFields();
 
-        boolean hasNextStep = !higherRoles.isEmpty();
-        int nextOrder = hasNextStep ? higherRoles.get(0).getApprovalOrder() : requesterOrder;
-        String status = hasNextStep ? "IN_PROGRESS" : "APPROVED";
+        int nextOrder = !higherRoles.isEmpty() ? higherRoles.get(0).getApprovalOrder() : requesterOrder;
 
         ApprovalRequest newRequest = requestRepository.save(ApprovalRequest.builder()
                 .group(group)
@@ -332,14 +327,12 @@ public class ApprovalService {
                 .parentRequest(parent)
                 .filledFields(filledFieldsJson)
                 .currentApprovalOrder(nextOrder)
-                .status(status)
+                .status("IN_PROGRESS")
                 .build());
 
-        if (hasNextStep) {
-            createPendingSteps(newRequest, group, nextOrder);
-        }
+        createPendingSteps(newRequest, group, nextOrder);
 
-        log.info("결재 재요청 생성 - parentId={}, newId={}, status={}", requestId, newRequest.getId(), status);
+        log.info("결재 재요청 생성 - parentId={}, newId={}", requestId, newRequest.getId());
         return toResponse(newRequest);
     }
 
@@ -377,8 +370,9 @@ public class ApprovalService {
     }
 
     private void validateEditor(User editor, ApprovalRequest request) {
-        if ("APPROVED".equals(request.getStatus())) {
-            throw new IllegalArgumentException("이미 최종 승인된 결재는 수정할 수 없습니다.");
+        String status = request.getStatus();
+        if ("APPROVED".equals(status) || "REJECTED".equals(status) || "CANCELED".equals(status)) {
+            throw new IllegalArgumentException("이미 처리된 결재는 수정할 수 없습니다.");
         }
         boolean isRequester = request.getRequester().getId().equals(editor.getId());
         boolean isCurrentApprover = stepRepository

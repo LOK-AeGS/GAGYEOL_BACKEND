@@ -158,21 +158,21 @@ public class FormFillService {
                             String field = entry.getKey();
                             String value = entry.getValue();
                             if (cellText.contains(field)) {
-                                // 오른쪽 셀이 비어있으면 값 입력
+                                // 오른쪽 빈 셀 우선 채우기, 이미 차 있으면 아래 셀 시도
                                 Cell rightCell = row.getCell(ci + 1);
                                 if (rightCell == null || rightCell.getCellType() == CellType.BLANK) {
                                     if (rightCell == null) rightCell = row.createCell(ci + 1);
                                     rightCell.setCellValue(value);
                                     log.debug("XLSX 필드 채우기(오른쪽): {} = {}", field, value);
-                                }
-                                // 아래 셀이 비어있으면 값 입력
-                                Row nextRow = sheet.getRow(row.getRowNum() + 1);
-                                if (nextRow != null) {
-                                    Cell belowCell = nextRow.getCell(ci);
-                                    if (belowCell == null || belowCell.getCellType() == CellType.BLANK) {
-                                        if (belowCell == null) belowCell = nextRow.createCell(ci);
-                                        belowCell.setCellValue(value);
-                                        log.debug("XLSX 필드 채우기(아래): {} = {}", field, value);
+                                } else {
+                                    Row nextRow = sheet.getRow(row.getRowNum() + 1);
+                                    if (nextRow != null) {
+                                        Cell belowCell = nextRow.getCell(ci);
+                                        if (belowCell == null || belowCell.getCellType() == CellType.BLANK) {
+                                            if (belowCell == null) belowCell = nextRow.createCell(ci);
+                                            belowCell.setCellValue(value);
+                                            log.debug("XLSX 필드 채우기(아래): {} = {}", field, value);
+                                        }
                                     }
                                 }
                             }
