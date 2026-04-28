@@ -41,12 +41,16 @@ public class Form {
     @Column(name = "payment_type", length = 10)
     private String paymentType; // CARD, CASH, BOTH
 
+    @Column(name = "generated_fields", columnDefinition = "TEXT")
+    private String generatedFields; // JSON 배열: LLM으로 생성할 필드명 목록
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
-    public void updateAnalysis(String description, String formFields) {
+    public void updateAnalysis(String description, String formFields, String generatedFields) {
         this.description = description;
         this.formFields = formFields;
+        this.generatedFields = generatedFields;
     }
 }

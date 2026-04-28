@@ -52,6 +52,7 @@ public class EvidenceService {
     private final PolicyChunkVectorStore vectorStore;
     private final EmbeddingService embeddingService;
     private final EvidenceAiService evidenceAiService;
+    private final FormAiService formAiService;
     private final FormFillService formFillService;
     private final ObjectMapper objectMapper;
 
@@ -100,14 +101,14 @@ public class EvidenceService {
         log.info("증빙서류 삭제 완료 - evidenceId={}", evidenceId);
     }
 
-    public EvidenceAnalysisResponse analyze(MultipartFile file, Long userId, Long groupId) {
+    public EvidenceAnalysisResponse analyze(MultipartFile file, Long userId, Long groupId,
+                                            String businessName, MultipartFile recipientImage) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
         UserGroup group = groupId != null
                 ? groupRepository.findById(groupId).orElseThrow(() -> new IllegalArgumentException("그룹을 찾을 수 없습니다: " + groupId))
                 : null;
 
-        // 그룹의 active_policy_id 자동 사용
         Long policyId = (group != null && group.getActivePolicy() != null)
                 ? group.getActivePolicy().getId()
                 : null;
@@ -115,12 +116,19 @@ public class EvidenceService {
             log.warn("그룹에 active_policy_id가 설정되지 않았습니다. RAG 검색 없이 진행합니다.");
         }
 
-        // 1. 파일 저장
+        // 1. 증빙 파일 저장
         String filePath = saveFile(file);
         String fileName = file.getOriginalFilename();
         log.info("증빙서류 저장 완료: {}", filePath);
 
-        // 2. Upstage IE로 결제 유형 분류 (파일 직접 전송, OCR 단계 불필요)
+        // 2. 수령인 사진 저장 (선택)
+        String recipientImagePath = null;
+        if (recipientImage != null && !recipientImage.isEmpty()) {
+            recipientImagePath = saveFile(recipientImage);
+            log.info("수령인 사진 저장 완료: {}", recipientImagePath);
+        }
+
+        // 3. Upstage IE로 결제 유형 분류
         String mimeType = resolveMimeType(fileName);
         byte[] fileBytes;
         try {
@@ -131,7 +139,7 @@ public class EvidenceService {
         String paymentType = evidenceAiService.classifyPaymentType(fileBytes, mimeType);
         log.info("결제 유형 분류 결과: {}", paymentType);
 
-        // 3. 증빙서류 저장
+        // 4. 증빙서류 저장 (사업명 + 수령인 사진 경로 포함)
         Evidence evidence = evidenceRepository.save(Evidence.builder()
                 .user(user)
                 .group(group)
@@ -139,9 +147,11 @@ public class EvidenceService {
                 .filePath(filePath)
                 .fileName(fileName)
                 .extractedText("")
+                .businessName(businessName)
+                .recipientImagePath(recipientImagePath)
                 .build());
 
-        // 5. 결제 유형에 맞는 양식지 목록 반환 (사용자가 선택)
+        // 5. 결제 유형에 맞는 양식지 목록 반환
         List<Form> forms = group != null
                 ? formRepository.findByGroupAndPaymentTypeIn(group, List.of(paymentType, "BOTH"))
                 : formRepository.findByPaymentTypeIn(List.of(paymentType, "BOTH"));
@@ -217,32 +227,83 @@ public class EvidenceService {
             }
 
             List<String> formFields;
+            Set<String> generatedFieldSet;
             try {
                 formFields = objectMapper.readValue(form.getFormFields(), new TypeReference<>() {});
+                List<String> gfList = objectMapper.readValue(
+                        form.getGeneratedFields() != null ? form.getGeneratedFields() : "[]",
+                        new TypeReference<>() {});
+                generatedFieldSet = new HashSet<>(gfList);
             } catch (Exception e) {
                 log.warn("양식지 {} 필드 파싱 실패, 건너뜀", formId);
                 continue;
             }
 
-            // Upstage IE로 파일에서 직접 필드 추출
-            byte[] evidenceBytes;
-            try {
-                evidenceBytes = Files.readAllBytes(Paths.get(evidence.getFilePath()));
-            } catch (IOException e) {
-                throw new RuntimeException("증빙서류 파일 읽기 실패: " + e.getMessage(), e);
-            }
-            String evidenceMimeType = resolveMimeType(evidence.getFileName());
-            String gptResult = evidenceAiService.fillFormFields(evidenceBytes, evidenceMimeType, formFields);
-            log.info("GPT 필드 채우기 결과 (formId={}): {}", formId, gptResult);
-
             Map<String, String> filledFields = new LinkedHashMap<>();
             List<String> missingFields = new ArrayList<>();
-            try {
-                JsonNode node = objectMapper.readTree(gptResult);
-                node.path("filled").fields().forEachRemaining(e -> filledFields.put(e.getKey(), e.getValue().asText()));
-                node.path("missing").forEach(n -> missingFields.add(n.asText()));
-            } catch (Exception e) {
-                log.warn("GPT 결과 파싱 실패 (formId={}): {}", formId, e.getMessage());
+
+            // [경로 1] generatedFields → 사업명 기반 LLM 생성
+            String businessName = evidence.getBusinessName();
+            List<String> directFields = new ArrayList<>();
+            for (String field : formFields) {
+                if (generatedFieldSet.contains(field)) {
+                    if (businessName != null && !businessName.isBlank()) {
+                        String content = formAiService.generateFieldContent(businessName, field);
+                        filledFields.put(field, content);
+                        log.info("LLM 생성 필드: {} = {}", field, content);
+                    } else {
+                        missingFields.add(field);
+                    }
+                } else {
+                    directFields.add(field);
+                }
+            }
+
+            if (!directFields.isEmpty()) {
+                byte[] evidenceBytes;
+                try {
+                    evidenceBytes = Files.readAllBytes(Paths.get(evidence.getFilePath()));
+                } catch (IOException e) {
+                    throw new RuntimeException("증빙서류 파일 읽기 실패: " + e.getMessage(), e);
+                }
+                String evidenceMimeType = resolveMimeType(evidence.getFileName());
+
+                // [경로 2] 증빙 파일에서 Upstage IE 추출
+                String ieResult = evidenceAiService.fillFormFields(evidenceBytes, evidenceMimeType, directFields);
+                log.info("증빙서류 IE 결과 (formId={}): {}", formId, ieResult);
+
+                List<String> stillMissing = new ArrayList<>();
+                try {
+                    JsonNode node = objectMapper.readTree(ieResult);
+                    node.path("filled").fields().forEachRemaining(e -> filledFields.put(e.getKey(), e.getValue().asText()));
+                    node.path("missing").forEach(n -> stillMissing.add(n.asText()));
+                } catch (Exception e) {
+                    log.warn("증빙서류 IE 결과 파싱 실패 (formId={}): {}", formId, e.getMessage());
+                    stillMissing.addAll(directFields);
+                }
+
+                // [경로 3] 증빙에서 못 찾은 필드 → 수령인 사진에서 추출 시도
+                String recipientImagePath = evidence.getRecipientImagePath();
+                if (!stillMissing.isEmpty() && recipientImagePath != null) {
+                    try {
+                        byte[] recipientBytes = Files.readAllBytes(Paths.get(recipientImagePath));
+                        String recipientFileName = Paths.get(recipientImagePath).getFileName().toString();
+                        String recipientMimeType = resolveMimeType(recipientFileName);
+                        String recipientResult = evidenceAiService.fillFormFields(recipientBytes, recipientMimeType, stillMissing);
+                        log.info("수령인 사진 IE 결과 (formId={}): {}", formId, recipientResult);
+
+                        List<String> finalMissing = new ArrayList<>();
+                        JsonNode rNode = objectMapper.readTree(recipientResult);
+                        rNode.path("filled").fields().forEachRemaining(e -> filledFields.put(e.getKey(), e.getValue().asText()));
+                        rNode.path("missing").forEach(n -> finalMissing.add(n.asText()));
+                        missingFields.addAll(finalMissing);
+                    } catch (Exception e) {
+                        log.warn("수령인 사진 IE 실패 (formId={}): {}", formId, e.getMessage());
+                        missingFields.addAll(stillMissing);
+                    }
+                } else {
+                    missingFields.addAll(stillMissing);
+                }
             }
 
             results.add(FillFieldsResponse.FormFillResult.builder()
