@@ -16,8 +16,8 @@ public class FormAiService {
     private final OpenAiClient openAiClient;
 
     /**
-     * 양식지 텍스트에서 필드 목록과 설명을 추출합니다.
-     * 반환 형식: {"description": "...", "fields": ["필드1", "필드2", ...]}
+     * 양식지 텍스트에서 필드 목록, 설명, LLM 생성 필드를 추출합니다.
+     * 반환 형식: {"description": "...", "fields": [...], "generatedFields": [...]}
      */
     public String analyzeForm(String formText, String policyChunks) {
         String policySection = (policyChunks != null && !policyChunks.isBlank())
@@ -26,11 +26,14 @@ public class FormAiService {
 
         String prompt = String.format("""
                 다음은 양식지의 텍스트입니다.%s
-                아래 두 가지를 JSON으로 반환하세요.
+                아래 세 가지를 JSON으로 반환하세요.
                 1. description: 이 양식지를 **언제, 어떤 상황에서** 사용하는지 구체적으로 설명하세요.
                    - 관련 규정이 제공된 경우, 규정에서 명시한 사용 조건(금액 기준, 결제 수단, 첨부 의무 등)을 반영하세요.
                    - "카드/현금 중 어떤 결제 수단에 쓰는지", "누가 작성하는지", "어떤 거래에서 발생하는지"를 포함하세요.
                 2. fields: 이 양식지에서 실제로 값을 입력해야 하는 빈 칸(입력 필드)의 이름 목록
+                3. generatedFields: fields 중에서 사업명을 바탕으로 LLM이 서술형 내용을 생성해야 하는 필드 목록
+                   - "내용", "목적", "설명", "사유", "개요", "세부내용" 등 서술형 작성이 필요한 필드를 포함하세요.
+                   - 성명, 금액, 날짜, 소속 등 단순 기재 필드는 제외하세요.
 
                 [필드 추출 규칙]
                 - 테이블에서 행/열의 그룹 레이블(예: "지출인", "수령인")은 필드가 아닙니다.
@@ -40,12 +43,28 @@ public class FormAiService {
                 - 이미 값이 고정된 셀(제목, 안내문, 합계 레이블 등)은 제외하세요.
 
                 반드시 다음 JSON 형식으로만 응답하세요:
-                {"description": "...", "fields": ["항목1", "항목2", ...]}
+                {"description": "...", "fields": ["항목1", "항목2", ...], "generatedFields": ["항목1", ...]}
 
                 양식지 텍스트:
                 %s""", policySection, formText);
 
         log.info("양식지 분석 GPT 요청");
         return openAiClient.chatJson(prompt);
+    }
+
+    /**
+     * 사업명을 바탕으로 특정 필드의 서술형 내용을 생성합니다.
+     */
+    public String generateFieldContent(String businessName, String fieldName) {
+        String prompt = String.format("""
+                사업명: %s
+
+                위 사업명을 바탕으로 공문서 양식의 '%s' 항목에 들어갈 내용을 작성해주세요.
+                간결하고 공식적인 문체로 2~3문장 이내로 작성하세요.
+                내용만 반환하고, 다른 설명은 붙이지 마세요.
+                """, businessName, fieldName);
+
+        log.info("사업명 기반 필드 생성 요청 - businessName={}, field={}", businessName, fieldName);
+        return openAiClient.chat(prompt, false, 0.7);
     }
 }

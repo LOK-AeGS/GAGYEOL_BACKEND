@@ -77,10 +77,12 @@ public class FormService {
 
         String description = "";
         String formFields = "[]";
+        String generatedFields = "[]";
         try {
             JsonNode node = objectMapper.readTree(analysisJson);
             description = node.path("description").asText();
             formFields = node.path("fields").toString();
+            generatedFields = node.has("generatedFields") ? node.path("generatedFields").toString() : "[]";
         } catch (Exception e) {
             log.warn("양식지 분석 결과 파싱 실패, 원본 저장: {}", e.getMessage());
         }
@@ -94,15 +96,17 @@ public class FormService {
                 .filePath(filePath)
                 .description(description)
                 .formFields(formFields)
+                .generatedFields(generatedFields)
                 .paymentType(normalizedType)
                 .build());
         log.info("양식지 저장 완료 - id: {}", form.getId());
 
         // fields JSON 파싱하여 리스트로 반환
         List<String> fieldList = List.of();
+        List<String> generatedFieldList = List.of();
         try {
-            JsonNode fieldsNode = objectMapper.readTree(formFields);
-            fieldList = objectMapper.convertValue(fieldsNode, new TypeReference<List<String>>() {});
+            fieldList = objectMapper.readValue(formFields, new TypeReference<>() {});
+            generatedFieldList = objectMapper.readValue(generatedFields, new TypeReference<>() {});
         } catch (Exception ignored) {}
 
         return FormUploadResponse.builder()
@@ -111,6 +115,7 @@ public class FormService {
                 .description(description)
                 .paymentType(normalizedType)
                 .fields(fieldList)
+                .generatedFields(generatedFieldList)
                 .build();
     }
 
@@ -136,19 +141,23 @@ public class FormService {
 
         String description = form.getDescription();
         String formFields = "[]";
+        String generatedFields = "[]";
         try {
             JsonNode node = objectMapper.readTree(analysisJson);
             description = node.path("description").asText();
             formFields = node.path("fields").toString();
+            generatedFields = node.has("generatedFields") ? node.path("generatedFields").toString() : "[]";
         } catch (Exception e) {
             log.warn("재분석 결과 파싱 실패: {}", e.getMessage());
         }
 
-        form.updateAnalysis(description, formFields);
+        form.updateAnalysis(description, formFields, generatedFields);
 
         List<String> fieldList = List.of();
+        List<String> generatedFieldList = List.of();
         try {
             fieldList = objectMapper.readValue(formFields, new TypeReference<>() {});
+            generatedFieldList = objectMapper.readValue(generatedFields, new TypeReference<>() {});
         } catch (Exception ignored) {}
 
         log.info("재분석 완료 - formId={}, 필드 수={}", formId, fieldList.size());
@@ -159,6 +168,7 @@ public class FormService {
                 .description(description)
                 .paymentType(form.getPaymentType())
                 .fields(fieldList)
+                .generatedFields(generatedFieldList)
                 .build();
     }
 
@@ -231,9 +241,13 @@ public class FormService {
     // ── 공통: Form → FormUploadResponse 변환 ────────────────────────────────
     private FormUploadResponse toResponse(Form form) {
         List<String> fieldList = List.of();
+        List<String> generatedFieldList = List.of();
         try {
             fieldList = objectMapper.readValue(
                     form.getFormFields() != null ? form.getFormFields() : "[]",
+                    new TypeReference<>() {});
+            generatedFieldList = objectMapper.readValue(
+                    form.getGeneratedFields() != null ? form.getGeneratedFields() : "[]",
                     new TypeReference<>() {});
         } catch (Exception ignored) {}
 
@@ -243,6 +257,7 @@ public class FormService {
                 .description(form.getDescription())
                 .paymentType(form.getPaymentType())
                 .fields(fieldList)
+                .generatedFields(generatedFieldList)
                 .createdAt(form.getCreatedAt())
                 .build();
     }
