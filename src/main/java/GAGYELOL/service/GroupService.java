@@ -212,17 +212,36 @@ public class GroupService {
         }
     }
 
+    public GroupResponse updatePayerInfo(Long ownerId, Long groupId, GAGYELOL.dto.group.PayerInfoRequest request) {
+        UserGroup group = findGroup(groupId);
+        validateOwner(ownerId, group);
+        group.updatePayerInfo(request.getName(), request.getAffiliation(), request.getStudentId(), request.getPhone());
+        log.info("지출인 정보 업데이트 - groupId={}", groupId);
+        return getGroupDetail(groupId);
+    }
+
     @Transactional(readOnly = true)
     public GroupResponse getGroupDetail(Long groupId) {
         UserGroup group = findGroup(groupId);
         List<GroupRole> roles = roleRepository.findByGroupOrderByApprovalOrderAsc(group);
         List<GroupMember> members = memberRepository.findByGroup(group);
 
+        GroupResponse.PayerInfo payerInfo = null;
+        if (group.getPayerName() != null) {
+            payerInfo = GroupResponse.PayerInfo.builder()
+                    .name(group.getPayerName())
+                    .affiliation(group.getPayerAffiliation())
+                    .studentId(group.getPayerStudentId())
+                    .phone(group.getPayerPhone())
+                    .build();
+        }
+
         return GroupResponse.builder()
                 .groupId(group.getId())
                 .name(group.getName())
                 .inviteCode(group.getInviteCode())
                 .ownerName(group.getOwner().getName())
+                .payerInfo(payerInfo)
                 .roles(roles.stream()
                         .map(r -> GroupResponse.RoleSummary.builder()
                                 .roleId(r.getId())

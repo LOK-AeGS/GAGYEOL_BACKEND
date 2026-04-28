@@ -224,25 +224,41 @@ public class EvidenceService {
                 continue;
             }
 
-            // Upstage IE로 파일에서 직접 필드 추출
-            byte[] evidenceBytes;
-            try {
-                evidenceBytes = Files.readAllBytes(Paths.get(evidence.getFilePath()));
-            } catch (IOException e) {
-                throw new RuntimeException("증빙서류 파일 읽기 실패: " + e.getMessage(), e);
-            }
-            String evidenceMimeType = resolveMimeType(evidence.getFileName());
-            String gptResult = evidenceAiService.fillFormFields(evidenceBytes, evidenceMimeType, formFields);
-            log.info("GPT 필드 채우기 결과 (formId={}): {}", formId, gptResult);
-
             Map<String, String> filledFields = new LinkedHashMap<>();
             List<String> missingFields = new ArrayList<>();
-            try {
-                JsonNode node = objectMapper.readTree(gptResult);
-                node.path("filled").fields().forEachRemaining(e -> filledFields.put(e.getKey(), e.getValue().asText()));
-                node.path("missing").forEach(n -> missingFields.add(n.asText()));
-            } catch (Exception e) {
-                log.warn("GPT 결과 파싱 실패 (formId={}): {}", formId, e.getMessage());
+
+            // [경로 0] 지출인 필드 → 그룹 등록 지출인 정보로 사전 채우기
+            List<String> ieFields = new ArrayList<>();
+            UserGroup group = evidence.getGroup();
+            for (String field : formFields) {
+                String payerValue = resolvePayerField(field, group);
+                if (payerValue != null) {
+                    filledFields.put(field, payerValue);
+                    log.info("지출인 정보 채우기: {} = {}", field, payerValue);
+                } else {
+                    ieFields.add(field);
+                }
+            }
+
+            // [경로 1] 나머지 필드 → Upstage IE로 증빙서류에서 추출
+            if (!ieFields.isEmpty()) {
+                byte[] evidenceBytes;
+                try {
+                    evidenceBytes = Files.readAllBytes(Paths.get(evidence.getFilePath()));
+                } catch (IOException e) {
+                    throw new RuntimeException("증빙서류 파일 읽기 실패: " + e.getMessage(), e);
+                }
+                String evidenceMimeType = resolveMimeType(evidence.getFileName());
+                String gptResult = evidenceAiService.fillFormFields(evidenceBytes, evidenceMimeType, ieFields);
+                log.info("Upstage IE 결과 (formId={}): {}", formId, gptResult);
+
+                try {
+                    JsonNode node = objectMapper.readTree(gptResult);
+                    node.path("filled").fields().forEachRemaining(e -> filledFields.put(e.getKey(), e.getValue().asText()));
+                    node.path("missing").forEach(n -> missingFields.add(n.asText()));
+                } catch (Exception e) {
+                    log.warn("IE 결과 파싱 실패 (formId={}): {}", formId, e.getMessage());
+                }
             }
 
             results.add(FillFieldsResponse.FormFillResult.builder()
@@ -325,6 +341,15 @@ public class EvidenceService {
         if (input.getFilledFields() != null) allFields.putAll(input.getFilledFields());
         if (input.getUserInputFields() != null) allFields.putAll(input.getUserInputFields());
         return allFields;
+    }
+
+    private String resolvePayerField(String field, UserGroup group) {
+        if (group == null || !field.contains("지출인")) return null;
+        if (field.contains("이름") || field.contains("성명")) return group.getPayerName();
+        if (field.contains("소속")) return group.getPayerAffiliation();
+        if (field.contains("학번") || field.contains("사번")) return group.getPayerStudentId();
+        if (field.contains("전화") || field.contains("연락")) return group.getPayerPhone();
+        return null;
     }
 
     private String buildFormListDescription(List<Form> forms) {

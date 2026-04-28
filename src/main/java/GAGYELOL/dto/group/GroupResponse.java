@@ -14,6 +14,16 @@ public class GroupResponse {
     private String ownerName;
     private List<RoleSummary> roles;
     private List<MemberSummary> members;
+    private PayerInfo payerInfo;
+
+    @Getter
+    @Builder
+    public static class PayerInfo {
+        private String name;
+        private String affiliation;
+        private String studentId;
+        private String phone;
+    }
 
     @Getter
     @Builder
