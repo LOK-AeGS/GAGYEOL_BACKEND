@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,4 +23,13 @@ public interface ApprovalRequestRepository extends JpaRepository<ApprovalRequest
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM ApprovalRequest r WHERE r.id = :id")
     Optional<ApprovalRequest> findByIdWithLock(@Param("id") Long id);
+
+    @Query("SELECT r FROM ApprovalRequest r WHERE r.requester.id = :userId AND r.group.id = :groupId ORDER BY r.createdAt DESC")
+    List<ApprovalRequest> findByRequesterIdAndGroupIdOrderByCreatedAtDesc(@Param("userId") Long userId, @Param("groupId") Long groupId);
+
+    @Query("SELECT r FROM ApprovalRequest r WHERE r.requester.id = :userId AND r.group.id = :groupId AND r.createdAt BETWEEN :start AND :end")
+    List<ApprovalRequest> findByRequesterIdAndGroupIdAndCreatedAtBetween(@Param("userId") Long userId, @Param("groupId") Long groupId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query("SELECT r FROM ApprovalRequest r WHERE r.requester.id = :userId AND r.group.id = :groupId AND r.status = :status")
+    List<ApprovalRequest> findByRequesterIdAndGroupIdAndStatus(@Param("userId") Long userId, @Param("groupId") Long groupId, @Param("status") String status);
 }
