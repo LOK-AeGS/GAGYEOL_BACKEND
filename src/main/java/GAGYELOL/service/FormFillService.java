@@ -66,18 +66,32 @@ public class FormFillService {
                         for (Map.Entry<String, String> entry : allFields.entrySet()) {
                             String field = entry.getKey();
                             String value = entry.getValue();
-                            boolean matches = field.equals(cellText) || field.equals(compoundKey);
-                            if (matches && i + 1 < cells.size()) {
+                            String normalizedCell = normalize(cellText);
+                            String normalizedField = normalize(field);
+                            String normalizedCompound = normalize(compoundKey);
+                            boolean matches = normalizedCell.contains(normalizedField)
+                                    || normalizedCompound.contains(normalizedField);
+                            if (!matches) continue;
+
+                            // 1순위: 오른쪽 인접 빈 셀 채우기 (현금지출증빙서 등)
+                            if (i + 1 < cells.size()) {
                                 XWPFTableCell nextCell = cells.get(i + 1);
                                 String nextText = nextCell.getText().trim();
                                 if (nextText.isEmpty()) {
                                     setCellText(nextCell, value);
                                     log.info("DOCX 필드 채우기 완료: {} = {}", field, value);
+                                    break;
                                 } else if (nextText.length() <= 2) {
-                                    // "원", "명" 같은 단위 텍스트인 경우 값 앞에 붙여서 채움
                                     setCellText(nextCell, value + nextText);
                                     log.info("DOCX 필드 채우기 완료(단위 포함): {} = {}{}", field, value, nextText);
+                                    break;
                                 }
+                            }
+
+                            // 2순위: 인라인 채우기 - 레이블 셀 자체에 값 삽입 (지출 기록부 병합 셀 구조)
+                            if (fillInline(cells.get(i), cellText, normalizedField, value)) {
+                                log.info("DOCX 필드 채우기 완료(인라인): {} = {}", field, value);
+                                break;
                             }
                         }
                     }
@@ -124,6 +138,48 @@ public class FormFillService {
                 paragraph.getRuns().get(0).setText(text, 0);
             }
         }
+    }
+
+    private String normalize(String text) {
+        return text
+                .replace(' ', ' ')  // non-breaking space
+                .replace('＆', '&')       // full-width ampersand
+                .replace("&amp;", "&")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    /**
+     * 레이블 셀 자체에 값을 삽입한다 (병합 셀 구조에서 별도 값 칸이 없는 경우).
+     * 패턴 1: "레이블 :       (인)" → "레이블 : 값  (인)"
+     * 패턴 2: "레이블 :"       → "레이블 : 값"
+     * 패턴 3: 셀 텍스트 = 필드명  → 값으로 교체
+     */
+    private boolean fillInline(XWPFTableCell cell, String rawCellText, String normalizedField, String value) {
+        String trimmed = rawCellText.trim();
+
+        if (trimmed.contains(":") && trimmed.contains("(인)")) {
+            int colonIdx = trimmed.indexOf(":");
+            int inIdx = trimmed.indexOf("(인)");
+            if (colonIdx < inIdx) {
+                String beforeColon = trimmed.substring(0, colonIdx + 1);
+                String inPart = trimmed.substring(inIdx);
+                setCellText(cell, beforeColon + " " + value + "  " + inPart);
+                return true;
+            }
+        }
+
+        if (trimmed.endsWith(":")) {
+            setCellText(cell, trimmed + " " + value);
+            return true;
+        }
+
+        if (normalize(trimmed).equals(normalizedField)) {
+            setCellText(cell, value);
+            return true;
+        }
+
+        return false;
     }
 
     private void setCellText(XWPFTableCell cell, String value) {
