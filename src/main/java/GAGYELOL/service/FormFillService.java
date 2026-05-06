@@ -175,11 +175,33 @@ public class FormFillService {
         }
 
         if (normalize(trimmed).equals(normalizedField)) {
-            setCellText(cell, value);
+            clearCellText(cell, value);
             return true;
         }
 
         return false;
+    }
+
+    // 셀의 모든 단락·run을 비우고 첫 run에만 값을 씀 (여러 단락으로 된 레이블 셀 교체용)
+    private void clearCellText(XWPFTableCell cell, String value) {
+        boolean valueSet = false;
+        for (XWPFParagraph para : cell.getParagraphs()) {
+            for (int j = 0; j < para.getRuns().size(); j++) {
+                if (!valueSet) {
+                    para.getRuns().get(j).setText(value, 0);
+                    valueSet = true;
+                } else {
+                    para.getRuns().get(j).setText("", 0);
+                }
+            }
+        }
+        if (!valueSet) {
+            if (cell.getParagraphs().isEmpty()) {
+                cell.addParagraph().createRun().setText(value);
+            } else {
+                cell.getParagraphs().get(0).createRun().setText(value);
+            }
+        }
     }
 
     private void setCellText(XWPFTableCell cell, String value) {
