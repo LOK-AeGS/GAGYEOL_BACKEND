@@ -63,6 +63,7 @@ public class EvidenceService {
 
     @Transactional(readOnly = true)
     public List<EvidenceResponse> getByGroup(Long groupId) {
+        if (groupId == null) return List.of();
         UserGroup group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new IllegalArgumentException("그룹을 찾을 수 없습니다: " + groupId));
         return evidenceRepository.findByGroupOrderByCreatedAtDesc(group).stream()

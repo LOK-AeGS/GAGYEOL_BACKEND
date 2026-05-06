@@ -27,7 +27,7 @@ public class EvidenceController {
     private final JwtUtil jwtUtil;
 
     @GetMapping
-    public ResponseEntity<List<EvidenceResponse>> listByGroup(@RequestParam Long groupId) {
+    public ResponseEntity<List<EvidenceResponse>> listByGroup(@RequestParam(required = false) Long groupId) {
         return ResponseEntity.ok(evidenceService.getByGroup(groupId));
     }
 
