@@ -1,14 +1,17 @@
 package GAGYELOL.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.util.Units;
 import org.apache.poi.xwpf.usermodel.*;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -18,13 +21,24 @@ public class FormFillService {
 
     /**
      * 파일 확장자에 따라 DOCX 또는 XLSX 채우기를 호출합니다.
+     * (backward compatibility - 이미지 없이 텍스트 필드만 채움)
      */
     public byte[] fill(String filePath, Map<String, String> allFields) throws IOException {
+        return fill(filePath, allFields, Collections.emptyMap());
+    }
+
+    /**
+     * 핵심 진입점 - 텍스트 필드와 이미지 필드를 함께 채웁니다.
+     */
+    public byte[] fill(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes) throws IOException {
+        if (imageFieldsBytes == null) {
+            imageFieldsBytes = Collections.emptyMap();
+        }
         String lower = filePath.toLowerCase();
         if (lower.endsWith(".docx")) {
-            return fillDocx(filePath, allFields);
+            return fillDocx(filePath, allFields, imageFieldsBytes);
         } else if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-            return fillXlsx(filePath, allFields);
+            return fillXlsx(filePath, allFields, imageFieldsBytes);
         } else {
             throw new IllegalArgumentException("지원하지 않는 양식 파일 형식: " + filePath);
         }
@@ -33,7 +47,7 @@ public class FormFillService {
     /**
      * DOCX 파일의 테이블 셀과 단락에서 필드명을 탐색하여 인접 빈 셀/다음 줄에 값을 채웁니다.
      */
-    private byte[] fillDocx(String filePath, Map<String, String> allFields) throws IOException {
+    private byte[] fillDocx(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes) throws IOException {
         try (FileInputStream fis = new FileInputStream(filePath);
              XWPFDocument doc = new XWPFDocument(fis)) {
 
@@ -113,9 +127,80 @@ public class FormFillService {
                 }
             }
 
+            // 이미지 필드 삽입 - 텍스트 채우기 완료 후 별도 단계로 실행
+            if (!imageFieldsBytes.isEmpty()) {
+                insertDocxImages(doc, imageFieldsBytes);
+            }
+
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             doc.write(out);
             return out.toByteArray();
+        }
+    }
+
+    /**
+     * DOCX 테이블에서 이미지 플레이스홀더("사진", "영수증 사진" 등) 셀을 찾아
+     * 인접한 빈 셀에 이미지를 삽입합니다.
+     */
+    private void insertDocxImages(XWPFDocument doc, Map<String, byte[]> imageFieldsBytes) {
+        for (Map.Entry<String, byte[]> imgEntry : imageFieldsBytes.entrySet()) {
+            String fieldName = imgEntry.getKey();
+            byte[] imageBytes = imgEntry.getValue();
+            if (imageBytes == null || imageBytes.length == 0) continue;
+
+            String normalizedField = normalize(fieldName);
+            int pictureType = detectPictureType(imageBytes);
+            int docxPicType = (pictureType == Workbook.PICTURE_TYPE_PNG)
+                    ? XWPFDocument.PICTURE_TYPE_PNG
+                    : XWPFDocument.PICTURE_TYPE_JPEG;
+
+            boolean inserted = false;
+            for (XWPFTable table : doc.getTables()) {
+                if (inserted) break;
+                for (XWPFTableRow row : table.getRows()) {
+                    if (inserted) break;
+                    List<XWPFTableCell> cells = row.getTableCells();
+                    for (int i = 0; i < cells.size(); i++) {
+                        XWPFTableCell labelCell = cells.get(i);
+                        String cellText = labelCell.getText().trim();
+                        if (cellText.isEmpty()) continue;
+                        if (!normalize(cellText).equals(normalizedField)) continue;
+
+                        // 인접 빈 셀 찾기 (오른쪽 우선)
+                        XWPFTableCell targetCell = null;
+                        if (i + 1 < cells.size()) {
+                            XWPFTableCell candidate = cells.get(i + 1);
+                            if (candidate.getText().trim().isEmpty()) {
+                                targetCell = candidate;
+                            }
+                        }
+
+                        if (targetCell == null) continue;
+
+                        try {
+                            XWPFParagraph para = targetCell.getParagraphs().isEmpty()
+                                    ? targetCell.addParagraph()
+                                    : targetCell.getParagraphs().get(0);
+                            XWPFRun run = para.getRuns().isEmpty()
+                                    ? para.createRun()
+                                    : para.getRuns().get(0);
+                            try (ByteArrayInputStream imgStream = new ByteArrayInputStream(imageBytes)) {
+                                run.addPicture(imgStream, docxPicType, fieldName,
+                                        Units.toEMU(150), Units.toEMU(190));
+                            }
+                            log.info("DOCX 이미지 삽입 완료: {} ({} bytes)", fieldName, imageBytes.length);
+                            inserted = true;
+                            break;
+                        } catch (InvalidFormatException | IOException e) {
+                            log.warn("DOCX 이미지 삽입 실패: {} - {}", fieldName, e.getMessage());
+                        }
+                    }
+                }
+            }
+
+            if (!inserted) {
+                log.warn("DOCX 이미지 플레이스홀더를 찾지 못함: {}", fieldName);
+            }
         }
     }
 
@@ -142,7 +227,7 @@ public class FormFillService {
 
     private String normalize(String text) {
         return text
-                .replace(' ', ' ')  // non-breaking space
+                .replace(' ', ' ')  // non-breaking space
                 .replace('＆', '&')       // full-width ampersand
                 .replace("&amp;", "&")
                 .replaceAll("\\s+", " ")
@@ -218,11 +303,12 @@ public class FormFillService {
     }
 
     /**
-     * XLSX 파일에서 필드명이 포함된 셀을 탐색하여 인접 빈 셀에 값을 채웁니다.
+     * XLSX/XLS 파일에서 필드명이 포함된 셀을 탐색하여 인접 빈 셀에 값을 채웁니다.
+     * WorkbookFactory를 사용하여 XLS(구버전 바이너리)도 지원합니다.
      */
-    private byte[] fillXlsx(String filePath, Map<String, String> allFields) throws IOException {
+    private byte[] fillXlsx(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes) throws IOException {
         try (FileInputStream fis = new FileInputStream(filePath);
-             Workbook workbook = new XSSFWorkbook(fis)) {
+             Workbook workbook = WorkbookFactory.create(fis)) {
 
             for (int si = 0; si < workbook.getNumberOfSheets(); si++) {
                 Sheet sheet = workbook.getSheetAt(si);
@@ -259,9 +345,89 @@ public class FormFillService {
                 }
             }
 
+            // 이미지 필드 삽입 - 텍스트 채우기 완료 후 별도 단계로 실행
+            if (!imageFieldsBytes.isEmpty()) {
+                insertXlsxImages(workbook, imageFieldsBytes);
+            }
+
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             workbook.write(out);
             return out.toByteArray();
         }
+    }
+
+    /**
+     * XLSX 시트에서 이미지 플레이스홀더 셀을 찾아 인접 열에 이미지를 삽입합니다.
+     */
+    private void insertXlsxImages(Workbook workbook, Map<String, byte[]> imageFieldsBytes) {
+        CreationHelper helper = workbook.getCreationHelper();
+
+        for (Map.Entry<String, byte[]> imgEntry : imageFieldsBytes.entrySet()) {
+            String fieldName = imgEntry.getKey();
+            byte[] imageBytes = imgEntry.getValue();
+            if (imageBytes == null || imageBytes.length == 0) continue;
+
+            String normalizedField = normalize(fieldName);
+            int pictureType = detectPictureType(imageBytes);
+            int pictureIndex = workbook.addPicture(imageBytes, pictureType);
+
+            boolean inserted = false;
+            for (int si = 0; si < workbook.getNumberOfSheets() && !inserted; si++) {
+                Sheet sheet = workbook.getSheetAt(si);
+                for (Row row : sheet) {
+                    if (inserted) break;
+                    short last = row.getLastCellNum();
+                    for (int ci = 0; ci < last; ci++) {
+                        Cell cell = row.getCell(ci);
+                        if (cell == null || cell.getCellType() != CellType.STRING) continue;
+                        String cellText = cell.getStringCellValue().trim();
+                        if (cellText.isEmpty()) continue;
+                        if (!normalize(cellText).equals(normalizedField)) continue;
+
+                        try {
+                            Drawing<?> drawing = sheet.createDrawingPatriarch();
+                            ClientAnchor anchor = helper.createClientAnchor();
+                            int labelRow = row.getRowNum();
+                            anchor.setCol1(ci + 1);
+                            anchor.setRow1(labelRow);
+                            anchor.setCol2(ci + 3);
+                            anchor.setRow2(labelRow + 4);
+                            drawing.createPicture(anchor, pictureIndex);
+                            log.info("XLSX 이미지 삽입 완료: {} ({} bytes)", fieldName, imageBytes.length);
+                            inserted = true;
+                            break;
+                        } catch (Exception e) {
+                            log.warn("XLSX 이미지 삽입 실패: {} - {}", fieldName, e.getMessage());
+                        }
+                    }
+                }
+            }
+
+            if (!inserted) {
+                log.warn("XLSX 이미지 플레이스홀더를 찾지 못함: {}", fieldName);
+            }
+        }
+    }
+
+    /**
+     * 매직 바이트로 이미지 타입을 감지합니다.
+     * - JPEG: 0xFF 0xD8
+     * - PNG : 0x89 0x50 0x4E 0x47
+     * 기본값은 JPEG입니다. (DOCX/XLSX 공통 상수 - PICTURE_TYPE_JPEG=5, PICTURE_TYPE_PNG=6)
+     */
+    private int detectPictureType(byte[] imageBytes) {
+        if (imageBytes != null && imageBytes.length >= 4) {
+            int b0 = imageBytes[0] & 0xFF;
+            int b1 = imageBytes[1] & 0xFF;
+            int b2 = imageBytes[2] & 0xFF;
+            int b3 = imageBytes[3] & 0xFF;
+            if (b0 == 0x89 && b1 == 0x50 && b2 == 0x4E && b3 == 0x47) {
+                return Workbook.PICTURE_TYPE_PNG;
+            }
+            if (b0 == 0xFF && b1 == 0xD8) {
+                return Workbook.PICTURE_TYPE_JPEG;
+            }
+        }
+        return Workbook.PICTURE_TYPE_JPEG;
     }
 }
