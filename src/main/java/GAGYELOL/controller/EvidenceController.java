@@ -71,7 +71,7 @@ public class EvidenceController {
         boolean isZip = request.getForms().size() > 1;
 
         HttpHeaders headers = new HttpHeaders();
-        String fileName = isZip ? "completed_forms.zip" : "completed_form.docx";
+        String fileName = evidenceService.resolveOutputFilename(request);
         headers.setContentDisposition(ContentDisposition.attachment()
                 .filename(fileName, StandardCharsets.UTF_8)
                 .build());

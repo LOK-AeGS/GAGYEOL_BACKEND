@@ -1,0 +1,693 @@
+{
+  "info": {
+    "name": "GAGYEOL API",
+    "description": "가결(GAGYEOL) 지출결의서 AI 자동화 시스템 전체 API 컬렉션\n\n사용법:\n1. Import 후 Variables 탭에서 baseUrl 확인 (기본: http://localhost:8080)\n2. [인증] 로그인 요청 실행 → token 자동 저장\n3. 이후 모든 요청에서 토큰 자동 사용",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",       "value": "http://localhost:8080", "type": "string" },
+    { "key": "token",         "value": "",  "type": "string" },
+    { "key": "userId",        "value": "1", "type": "string" },
+    { "key": "groupId",       "value": "1", "type": "string" },
+    { "key": "policyId",      "value": "1", "type": "string" },
+    { "key": "formId",        "value": "1", "type": "string" },
+    { "key": "evidenceId",    "value": "1", "type": "string" },
+    { "key": "requestId",     "value": "1", "type": "string" },
+    { "key": "photoId",       "value": "",  "type": "string" },
+    { "key": "photoFilePath", "value": "",  "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "🔐 인증 (Auth)",
+      "item": [
+        {
+          "name": "회원가입",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"test1234\",\n  \"name\": \"테스트유저\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "auth", "register"] }
+          }
+        },
+        {
+          "name": "로그인 (토큰 자동 저장)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.token) {",
+                  "    pm.collectionVariables.set('token', res.token);",
+                  "    pm.collectionVariables.set('userId', String(res.userId));",
+                  "    console.log('✅ 토큰 저장 완료:', res.token.substring(0, 30) + '...');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"test1234\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "👥 그룹 (Groups)",
+      "item": [
+        {
+          "name": "그룹 생성",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.groupId) {",
+                  "    pm.collectionVariables.set('groupId', String(res.groupId));",
+                  "    console.log('✅ groupId 저장:', res.groupId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"테스트 동아리\",\n  \"roles\": [\"부원\", \"차장\", \"부장\"]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/groups", "host": ["{{baseUrl}}"], "path": ["api", "groups"] }
+          }
+        },
+        {
+          "name": "초대코드로 그룹 가입",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/groups/join/INVITE_CODE", "host": ["{{baseUrl}}"], "path": ["api", "groups", "join", "INVITE_CODE"] }
+          }
+        },
+        {
+          "name": "그룹 상세 조회",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/groups/{{groupId}}", "host": ["{{baseUrl}}"], "path": ["api", "groups", "{{groupId}}"] }
+          }
+        },
+        {
+          "name": "내 그룹 목록",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/groups/my", "host": ["{{baseUrl}}"], "path": ["api", "groups", "my"] }
+          }
+        },
+        {
+          "name": "멤버 추방",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/groups/{{groupId}}/members/TARGET_USER_ID", "host": ["{{baseUrl}}"], "path": ["api", "groups", "{{groupId}}", "members", "TARGET_USER_ID"] }
+          }
+        },
+        {
+          "name": "역할 변경",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": 2,\n  \"roleId\": 3\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/groups/{{groupId}}/members/role", "host": ["{{baseUrl}}"], "path": ["api", "groups", "{{groupId}}", "members", "role"] }
+          }
+        },
+        {
+          "name": "역할 추가",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleName\": \"총무\",\n  \"approvalOrder\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/groups/{{groupId}}/roles", "host": ["{{baseUrl}}"], "path": ["api", "groups", "{{groupId}}", "roles"] }
+          }
+        },
+        {
+          "name": "역할명 수정",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleName\": \"팀장\",\n  \"approvalOrder\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/groups/{{groupId}}/roles/ROLE_ID", "host": ["{{baseUrl}}"], "path": ["api", "groups", "{{groupId}}", "roles", "ROLE_ID"] }
+          }
+        },
+        {
+          "name": "역할 삭제",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/groups/{{groupId}}/roles/ROLE_ID", "host": ["{{baseUrl}}"], "path": ["api", "groups", "{{groupId}}", "roles", "ROLE_ID"] }
+          }
+        },
+        {
+          "name": "지출인 정보 등록/수정",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"홍길동\",\n  \"affiliation\": \"컴퓨터공학과\",\n  \"studentId\": \"32210000\",\n  \"phone\": \"010-1234-5678\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/groups/{{groupId}}/payer-info", "host": ["{{baseUrl}}"], "path": ["api", "groups", "{{groupId}}", "payer-info"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📷 사진 (Photos)",
+      "item": [
+        {
+          "name": "사진 업로드 (학생증 등)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.photoId) {",
+                  "    pm.collectionVariables.set('photoId', res.photoId);",
+                  "    pm.collectionVariables.set('photoFilePath', res.filePath);",
+                  "    console.log('✅ photoId 저장:', res.photoId);",
+                  "    console.log('✅ filePath 저장:', res.filePath);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file",  "type": "file", "src": "", "description": "jpg, jpeg, png, webp, gif" },
+                { "key": "label", "value": "학생증", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/api/photos/upload", "host": ["{{baseUrl}}"], "path": ["api", "photos", "upload"] }
+          }
+        },
+        {
+          "name": "사진 삭제",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/photos/{{photoId}}", "host": ["{{baseUrl}}"], "path": ["api", "photos", "{{photoId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📄 규정책 (Policies)",
+      "item": [
+        {
+          "name": "규정책 PDF 업로드",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.policyId) {",
+                  "    pm.collectionVariables.set('policyId', String(res.policyId));",
+                  "    console.log('✅ policyId 저장:', res.policyId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file",       "type": "file", "src": "", "description": "PDF 파일" },
+                { "key": "policyName", "value": "2026년 동아리 운영 규정", "type": "text" },
+                { "key": "groupId",    "value": "{{groupId}}", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/api/policies/upload", "host": ["{{baseUrl}}"], "path": ["api", "policies", "upload"] }
+          }
+        },
+        {
+          "name": "그룹별 규정책 목록",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/policies?groupId={{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "policies"],
+              "query": [{ "key": "groupId", "value": "{{groupId}}" }]
+            }
+          }
+        },
+        {
+          "name": "규정책 단건 조회",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/policies/{{policyId}}", "host": ["{{baseUrl}}"], "path": ["api", "policies", "{{policyId}}"] }
+          }
+        },
+        {
+          "name": "규정책 삭제",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/policies/{{policyId}}", "host": ["{{baseUrl}}"], "path": ["api", "policies", "{{policyId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📋 양식지 (Forms)",
+      "item": [
+        {
+          "name": "양식지 업로드 및 AI 분석",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.formId) {",
+                  "    pm.collectionVariables.set('formId', String(res.formId));",
+                  "    console.log('✅ formId 저장:', res.formId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file",        "type": "file", "src": "", "description": "docx, xlsx, xls" },
+                { "key": "formName",    "value": "현금지출증빙서", "type": "text" },
+                { "key": "paymentType", "value": "CASH", "type": "text", "description": "CARD / CASH / BOTH" },
+                { "key": "groupId",     "value": "{{groupId}}", "type": "text" },
+                { "key": "policyId",    "value": "{{policyId}}", "type": "text", "description": "선택 - 규정 참조 시" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/api/forms/upload", "host": ["{{baseUrl}}"], "path": ["api", "forms", "upload"] }
+          }
+        },
+        {
+          "name": "양식지 재분석",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/forms/{{formId}}/reanalyze?policyId={{policyId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "forms", "{{formId}}", "reanalyze"],
+              "query": [{ "key": "policyId", "value": "{{policyId}}" }]
+            }
+          }
+        },
+        {
+          "name": "그룹별 양식지 목록",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/forms?groupId={{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "forms"],
+              "query": [{ "key": "groupId", "value": "{{groupId}}" }]
+            }
+          }
+        },
+        {
+          "name": "양식지 단건 조회",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/forms/{{formId}}", "host": ["{{baseUrl}}"], "path": ["api", "forms", "{{formId}}"] }
+          }
+        },
+        {
+          "name": "양식지 삭제",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/forms/{{formId}}", "host": ["{{baseUrl}}"], "path": ["api", "forms", "{{formId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🧾 증빙서류 (Evidence)",
+      "item": [
+        {
+          "name": "증빙서류 분석",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.evidenceId) {",
+                  "    pm.collectionVariables.set('evidenceId', String(res.evidenceId));",
+                  "    console.log('✅ evidenceId 저장:', res.evidenceId);",
+                  "    console.log('결제유형:', res.paymentType);",
+                  "    console.log('사용 가능한 양식지:', res.availableForms?.map(f => f.formId + ':' + f.formName).join(', '));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file",           "type": "file", "src": "", "description": "pdf, jpg, jpeg, png, webp, xlsx, xls, docx, hwp, hwpx" },
+                { "key": "groupId",        "value": "{{groupId}}", "type": "text" },
+                { "key": "businessName",   "value": "MT 준비물 구매", "type": "text", "description": "선택 - LLM 생성 필드에 사용" },
+                { "key": "recipientImage", "type": "file", "src": "", "description": "선택 - 수령인 서명/도장 사진" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/api/evidence/analyze", "host": ["{{baseUrl}}"], "path": ["api", "evidence", "analyze"] }
+          }
+        },
+        {
+          "name": "필드 자동 채우기",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"formIds\": [{{formId}}]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/evidence/{{evidenceId}}/fill", "host": ["{{baseUrl}}"], "path": ["api", "evidence", "{{evidenceId}}", "fill"] }
+          }
+        },
+        {
+          "name": "완성 파일 다운로드 (이미지 포함)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"forms\": [\n    {\n      \"formId\": {{formId}},\n      \"filledFields\": {\n        \"날짜\": \"2026-05-09\",\n        \"금액\": \"15000\"\n      },\n      \"userInputFields\": {\n        \"합계\": \"15000원\",\n        \"사업명\": \"MT 준비물 구매\"\n      },\n      \"imageFields\": {\n        \"사진\": \"{{photoFilePath}}\"\n      }\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/evidence/{{evidenceId}}/complete", "host": ["{{baseUrl}}"], "path": ["api", "evidence", "{{evidenceId}}", "complete"] }
+          }
+        },
+        {
+          "name": "완성 파일 다운로드 (텍스트만)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"forms\": [\n    {\n      \"formId\": {{formId}},\n      \"filledFields\": {\n        \"날짜\": \"2026-05-09\",\n        \"금액\": \"15000\"\n      },\n      \"userInputFields\": {\n        \"합계\": \"15000원\"\n      },\n      \"imageFields\": {}\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/evidence/{{evidenceId}}/complete", "host": ["{{baseUrl}}"], "path": ["api", "evidence", "{{evidenceId}}", "complete"] }
+          }
+        },
+        {
+          "name": "그룹별 증빙서류 목록",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/evidence?groupId={{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "evidence"],
+              "query": [{ "key": "groupId", "value": "{{groupId}}" }]
+            }
+          }
+        },
+        {
+          "name": "증빙서류 단건 조회",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/evidence/{{evidenceId}}", "host": ["{{baseUrl}}"], "path": ["api", "evidence", "{{evidenceId}}"] }
+          }
+        },
+        {
+          "name": "증빙서류 삭제",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/evidence/{{evidenceId}}", "host": ["{{baseUrl}}"], "path": ["api", "evidence", "{{evidenceId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "✅ 결재 (Approvals)",
+      "item": [
+        {
+          "name": "결재 요청 생성",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.requestId) {",
+                  "    pm.collectionVariables.set('requestId', String(res.requestId));",
+                  "    console.log('✅ requestId 저장:', res.requestId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": {{groupId}},\n  \"evidenceId\": {{evidenceId}},\n  \"formId\": {{formId}},\n  \"filledFields\": {\n    \"날짜\": \"2026-05-09\",\n    \"금액\": \"15000\",\n    \"합계\": \"15000원\"\n  },\n  \"parentRequestId\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/approvals", "host": ["{{baseUrl}}"], "path": ["api", "approvals"] }
+          }
+        },
+        {
+          "name": "결재 단건 조회",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/approvals/{{requestId}}", "host": ["{{baseUrl}}"], "path": ["api", "approvals", "{{requestId}}"] }
+          }
+        },
+        {
+          "name": "결재 이력 조회",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/approvals/{{requestId}}/history", "host": ["{{baseUrl}}"], "path": ["api", "approvals", "{{requestId}}", "history"] }
+          }
+        },
+        {
+          "name": "내 결재 목록",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/approvals/my", "host": ["{{baseUrl}}"], "path": ["api", "approvals", "my"] }
+          }
+        },
+        {
+          "name": "그룹 결재 목록",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/approvals/group/{{groupId}}", "host": ["{{baseUrl}}"], "path": ["api", "approvals", "group", "{{groupId}}"] }
+          }
+        },
+        {
+          "name": "승인",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comment\": \"내용 확인 후 승인합니다.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/approvals/{{requestId}}/approve", "host": ["{{baseUrl}}"], "path": ["api", "approvals", "{{requestId}}", "approve"] }
+          }
+        },
+        {
+          "name": "반려",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comment\": \"영수증 금액이 일치하지 않습니다.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/approvals/{{requestId}}/reject", "host": ["{{baseUrl}}"], "path": ["api", "approvals", "{{requestId}}", "reject"] }
+          }
+        },
+        {
+          "name": "재결재",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filledFields\": {\n    \"날짜\": \"2026-05-09\",\n    \"금액\": \"20000\",\n    \"합계\": \"20000원\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/approvals/{{requestId}}/resubmit", "host": ["{{baseUrl}}"], "path": ["api", "approvals", "{{requestId}}", "resubmit"] }
+          }
+        },
+        {
+          "name": "양식지 필드 수정",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filledFields\": {\n    \"금액\": \"20000\",\n    \"합계\": \"20000원\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/approvals/{{requestId}}/fields", "host": ["{{baseUrl}}"], "path": ["api", "approvals", "{{requestId}}", "fields"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📊 대시보드 (Dashboard)",
+      "item": [
+        {
+          "name": "월별 요약 통계",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard/summary?groupId={{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dashboard", "summary"],
+              "query": [{ "key": "groupId", "value": "{{groupId}}" }]
+            }
+          }
+        },
+        {
+          "name": "연/월별 결의서 목록",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard/monthly-directory?groupId={{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dashboard", "monthly-directory"],
+              "query": [{ "key": "groupId", "value": "{{groupId}}" }]
+            }
+          }
+        },
+        {
+          "name": "최근 결재 현황",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard/recent-approvals?groupId={{groupId}}&status=IN_PROGRESS",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dashboard", "recent-approvals"],
+              "query": [
+                { "key": "groupId", "value": "{{groupId}}" },
+                { "key": "status",  "value": "IN_PROGRESS", "description": "IN_PROGRESS / APPROVED / REJECTED" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
