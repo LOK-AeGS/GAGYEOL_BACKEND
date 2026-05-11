@@ -208,25 +208,42 @@ public class FormFillService {
             }
         }
 
-        // Pass 2: 부분 일치 / 키워드 매칭 → 매칭된 셀에 직접 삽입
-        boolean fieldIsImageish = isImageishLabel(normalizedField);
+        // Pass 2a: 구체적 매칭 — 셀이 필드명을 포함하거나 반대
+        // (예: 필드 "영수증" → 셀 "영수증 부착(...)" 우선 매칭; 같은 행의 "학생증 부착(...)"은 키워드만 일치하므로 후순위)
         for (XWPFTable table : doc.getTables()) {
             for (XWPFTableRow row : table.getRows()) {
-                List<XWPFTableCell> cells = row.getTableCells();
-                for (XWPFTableCell cell : cells) {
+                for (XWPFTableCell cell : row.getTableCells()) {
                     if (usedCells.contains(cell)) continue;
                     String cellTextRaw = cell.getText().trim();
                     if (cellTextRaw.isEmpty()) continue;
                     String cellText = normalize(cellTextRaw);
-
-                    boolean contains = cellText.contains(normalizedField) || normalizedField.contains(cellText);
-                    boolean keyword = fieldIsImageish && (cellText.contains("부착")
-                            || cellText.contains("사진") || cellText.contains("이미지"));
-                    if (!contains && !keyword) continue;
+                    if (!cellText.contains(normalizedField) && !normalizedField.contains(cellText)) continue;
 
                     if (addPictureToCell(cell, fieldName, imageBytes, docxPicType, false)) {
                         usedCells.add(cell);
                         return true;
+                    }
+                }
+            }
+        }
+
+        // Pass 2b: 키워드 폴백 — 필드명이 이미지성(사진/이미지/학생증/영수증)이고
+        // 셀에 부착/사진/이미지 키워드가 있을 때. "사진" 같은 제너릭 필드명 대응.
+        boolean fieldIsImageish = isImageishLabel(normalizedField);
+        if (fieldIsImageish) {
+            for (XWPFTable table : doc.getTables()) {
+                for (XWPFTableRow row : table.getRows()) {
+                    for (XWPFTableCell cell : row.getTableCells()) {
+                        if (usedCells.contains(cell)) continue;
+                        String cellTextRaw = cell.getText().trim();
+                        if (cellTextRaw.isEmpty()) continue;
+                        String cellText = normalize(cellTextRaw);
+                        if (!cellText.contains("부착") && !cellText.contains("사진") && !cellText.contains("이미지")) continue;
+
+                        if (addPictureToCell(cell, fieldName, imageBytes, docxPicType, false)) {
+                            usedCells.add(cell);
+                            return true;
+                        }
                     }
                 }
             }
@@ -511,7 +528,7 @@ public class FormFillService {
                     }
                 }
             }
-            // Pass 2: 부분 일치 / 키워드 매칭
+            // Pass 2a: 구체적 매칭 — 셀이 필드명을 포함하거나 반대
             for (int si = 0; si < workbook.getNumberOfSheets() && !inserted; si++) {
                 Sheet sheet = workbook.getSheetAt(si);
                 for (Row row : sheet) {
@@ -526,10 +543,32 @@ public class FormFillService {
                         if (usedCellKeys.contains(key)) continue;
                         String cellText = normalize(cellTextRaw);
 
-                        boolean contains = cellText.contains(normalizedField) || normalizedField.contains(cellText);
-                        boolean keyword = fieldIsImageish && (cellText.contains("부착")
-                                || cellText.contains("사진") || cellText.contains("이미지"));
-                        if (!contains && !keyword) continue;
+                        if (!cellText.contains(normalizedField) && !normalizedField.contains(cellText)) continue;
+
+                        if (anchorPicture(sheet, helper, pictureIndex, row.getRowNum(), ci, fieldName, imageBytes.length, false)) {
+                            usedCellKeys.add(key);
+                            inserted = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            // Pass 2b: 키워드 폴백 — 필드가 이미지성이고 셀에 부착/사진/이미지 키워드
+            for (int si = 0; si < workbook.getNumberOfSheets() && !inserted && fieldIsImageish; si++) {
+                Sheet sheet = workbook.getSheetAt(si);
+                for (Row row : sheet) {
+                    if (inserted) break;
+                    short last = row.getLastCellNum();
+                    for (int ci = 0; ci < last; ci++) {
+                        Cell cell = row.getCell(ci);
+                        if (cell == null || cell.getCellType() != CellType.STRING) continue;
+                        String cellTextRaw = cell.getStringCellValue().trim();
+                        if (cellTextRaw.isEmpty()) continue;
+                        String key = si + ":" + row.getRowNum() + ":" + ci;
+                        if (usedCellKeys.contains(key)) continue;
+                        String cellText = normalize(cellTextRaw);
+
+                        if (!cellText.contains("부착") && !cellText.contains("사진") && !cellText.contains("이미지")) continue;
 
                         if (anchorPicture(sheet, helper, pictureIndex, row.getRowNum(), ci, fieldName, imageBytes.length, false)) {
                             usedCellKeys.add(key);
