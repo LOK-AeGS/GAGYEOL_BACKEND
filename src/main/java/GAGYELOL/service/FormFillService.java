@@ -354,17 +354,29 @@ public class FormFillService {
      */
     /**
      * IE가 행별 데이터를 한 셀에 ", "(콤마+공백)로 이어 반환하는 형태를 행 단위 리스트로 분리.
-     * 값 내부의 천 단위 콤마(예: "9,000")는 공백이 없어 보존됨.
-     * 단일 값(또는 분할 결과가 1개)이면 원본 그대로 단일 원소 리스트로 반환.
+     * - 값 내부의 천 단위 콤마(예: "9,000")는 공백이 없어 보존됨.
+     * - 자연어 문장(생성된 "내용" 등) 보호: 각 토큰이 짧을 때만 다중행으로 인식.
+     * - 빈 토큰("16,000, , 9,000" 형태의 누락된 행)도 보존해서 행 정렬 유지.
+     * - 다중행으로 판단되지 않으면 원본을 단일 원소 리스트로 반환.
      */
+    private static final int MULTIROW_MIN_PARTS = 3;
+    private static final int MULTIROW_MAX_TOKEN_LEN = 30;
+
     private java.util.List<String> splitMultiRowValue(String value) {
         if (value == null) return java.util.Collections.emptyList();
-        // "9,000, 16,000, ..." 처럼 콤마 뒤에 공백이 있는 경우에만 분리
         String[] parts = value.split(",\\s+");
+        if (parts.length < MULTIROW_MIN_PARTS) {
+            return java.util.Collections.singletonList(value);
+        }
+        // 자연어 문장 보호: 한 토큰이라도 너무 길면 표 데이터가 아니라고 판단
+        for (String p : parts) {
+            if (p.trim().length() > MULTIROW_MAX_TOKEN_LEN) {
+                return java.util.Collections.singletonList(value);
+            }
+        }
         java.util.List<String> result = new java.util.ArrayList<>(parts.length);
         for (String p : parts) {
-            String t = p.trim();
-            if (!t.isEmpty()) result.add(t);
+            result.add(p.trim());
         }
         return result;
     }
@@ -399,14 +411,16 @@ public class FormFillService {
                                 // IE가 행별 값을 ", "로 이어서 한 문자열로 반환하는 경우(3개 이상) 분할해서 행별로 기입
                                 List<String> rowValues = splitMultiRowValue(value);
                                 int startRow = row.getRowNum() + 1;
-                                if (rowValues.size() >= 3) {
+                                if (rowValues.size() >= MULTIROW_MIN_PARTS) {
                                     for (int j = 0; j < rowValues.size(); j++) {
+                                        String v = rowValues.get(j);
+                                        if (v.isEmpty()) continue; // 중간에 누락된 행은 그대로 비워둠
                                         Row targetRow = sheet.getRow(startRow + j);
                                         if (targetRow == null) targetRow = sheet.createRow(startRow + j);
                                         Cell target = targetRow.getCell(ci);
                                         if (target == null) target = targetRow.createCell(ci);
-                                        else if (target.getCellType() != CellType.BLANK) continue; // 이미 다른 데이터 → 덮어쓰지 않음
-                                        target.setCellValue(rowValues.get(j));
+                                        else if (target.getCellType() != CellType.BLANK) continue; // 이미 다른 데이터/수식 → 덮어쓰지 않음
+                                        target.setCellValue(v);
                                     }
                                     log.debug("XLSX 필드 채우기(다중행, {}개): {}", rowValues.size(), field);
                                 } else {
