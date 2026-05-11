@@ -382,9 +382,11 @@ public class EvidenceService {
                 .orElseThrow(() -> new IllegalArgumentException("양식지를 찾을 수 없습니다: " + input.getFormId()));
         Map<String, String> allFields = mergeFields(input);
         Map<String, byte[]> imageBytesMap = resolveImageBytes(evidence, input.getImageFields());
-        log.info("양식지 최종 완성 - formId={}, 필드 수={}, 이미지 수={}", form.getId(), allFields.size(), imageBytesMap.size());
+        Set<String> generatedFields = parseGeneratedFields(form);
+        log.info("양식지 최종 완성 - formId={}, 필드 수={}, 이미지 수={}, generatedFields={}",
+                form.getId(), allFields.size(), imageBytesMap.size(), generatedFields);
         try {
-            return formFillService.fill(form.getFilePath(), allFields, imageBytesMap);
+            return formFillService.fill(form.getFilePath(), allFields, imageBytesMap, generatedFields);
         } catch (IOException e) {
             throw new RuntimeException("양식지 파일 생성 실패: " + e.getMessage(), e);
         }
@@ -399,7 +401,8 @@ public class EvidenceService {
                         .orElseThrow(() -> new IllegalArgumentException("양식지를 찾을 수 없습니다: " + input.getFormId()));
                 Map<String, String> allFields = mergeFields(input);
                 Map<String, byte[]> imageBytesMap = resolveImageBytes(evidence, input.getImageFields());
-                byte[] fileBytes = formFillService.fill(form.getFilePath(), allFields, imageBytesMap);
+                Set<String> generatedFields = parseGeneratedFields(form);
+                byte[] fileBytes = formFillService.fill(form.getFilePath(), allFields, imageBytesMap, generatedFields);
 
                 String ext = form.getFilePath().substring(form.getFilePath().lastIndexOf('.'));
                 zip.putNextEntry(new ZipEntry(form.getFormName() + ext));
@@ -454,6 +457,22 @@ public class EvidenceService {
         if (input.getFilledFields() != null) allFields.putAll(input.getFilledFields());
         if (input.getUserInputFields() != null) allFields.putAll(input.getUserInputFields());
         return allFields;
+    }
+
+    /**
+     * Form 메타데이터의 generatedFields(JSON 배열)를 Set으로 파싱.
+     * 이 필드들은 LLM 생성 자연어이므로 XLSX 다중행 분할 대상에서 제외해야 함.
+     */
+    private Set<String> parseGeneratedFields(Form form) {
+        String raw = form.getGeneratedFields();
+        if (raw == null || raw.isBlank()) return Collections.emptySet();
+        try {
+            List<String> list = objectMapper.readValue(raw, new TypeReference<>() {});
+            return new HashSet<>(list);
+        } catch (Exception e) {
+            log.warn("Form {}의 generatedFields 파싱 실패, 빈 set으로 진행: {}", form.getId(), e.getMessage());
+            return Collections.emptySet();
+        }
     }
 
     private String resolvePayerField(String field, UserGroup group) {
