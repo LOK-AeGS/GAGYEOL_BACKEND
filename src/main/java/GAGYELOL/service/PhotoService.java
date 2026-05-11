@@ -21,7 +21,7 @@ import java.util.UUID;
 public class PhotoService {
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
-            ".jpg", ".jpeg", ".png", ".webp", ".gif"
+            ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"
     );
 
     @Value("${file.upload.photo-dir:./uploads/photos}")
@@ -29,13 +29,13 @@ public class PhotoService {
 
     public PhotoUploadResponse upload(MultipartFile file, String label) {
         String originalName = file.getOriginalFilename();
-        String ext = extractExtension(originalName);
+        String ext = extractExtension(originalName).toLowerCase();
 
         if (ext.isEmpty()) {
             ext = contentTypeToExtension(file.getContentType());
         }
 
-        if (!ALLOWED_EXTENSIONS.contains(ext.toLowerCase())) {
+        if (!ALLOWED_EXTENSIONS.contains(ext)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "지원하지 않는 이미지 형식입니다. 허용 형식: " + ALLOWED_EXTENSIONS
                     + " (전달된 파일명: " + originalName + ", Content-Type: " + file.getContentType() + ")");
@@ -92,6 +92,7 @@ public class PhotoService {
             case "image/png"  -> ".png";
             case "image/webp" -> ".webp";
             case "image/gif"  -> ".gif";
+            case "image/bmp", "image/x-ms-bmp" -> ".bmp";
             default -> "";
         };
     }
