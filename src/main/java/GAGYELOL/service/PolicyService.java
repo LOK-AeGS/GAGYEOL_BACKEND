@@ -33,6 +33,7 @@ public class PolicyService {
     private final UserRepository userRepository;
     private final PolicyChunkVectorStore vectorStore;
     private final PdfParserService pdfParserService;
+    private final FormParserService formParserService;
     private final EmbeddingService embeddingService;
     private final PolicyAiService policyAiService;
     private final GAGYELOL.repository.UserGroupRepository groupRepository;
@@ -59,36 +60,51 @@ public class PolicyService {
                 .build());
         log.info("Policy 저장 완료 - id: {}", policy.getId());
 
-        // 3. PDF 바이트 읽기
-        byte[] pdfBytes;
-        try {
-            pdfBytes = Files.readAllBytes(Paths.get(filePath));
-        } catch (IOException e) {
-            throw new RuntimeException("파일 읽기 실패", e);
-        }
-
-        // 4. 텍스트 추출 (텍스트 기반 or Vision)
+        // 3. 파일 형식별 텍스트 추출
+        // PDF: 텍스트 기반 우선, 실패 시 Vision API
+        // XLSX/XLS: POI로 시트 텍스트 추출
         String text;
-        try {
-            text = pdfParserService.extractText(new File(filePath));
-        } catch (IOException e) {
-            throw new RuntimeException("PDF 텍스트 추출 실패", e);
-        }
+        String lowerName = filePath.toLowerCase();
+        boolean isPdf = lowerName.endsWith(".pdf");
+        boolean isExcel = lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls");
 
-        if (pdfParserService.isImageBasedPdf(text)) {
-            log.info("이미지 기반 PDF 감지 - Vision API로 처리합니다. policyId={}", policy.getId());
+        if (isExcel) {
             try {
-                List<String> pageImages = pdfParserService.extractPageImagesAsBase64(pdfBytes);
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < pageImages.size(); i++) {
-                    log.info("페이지 {}/{} Vision 처리 중...", i + 1, pageImages.size());
-                    sb.append(policyAiService.extractTextFromImage(pageImages.get(i)));
-                    sb.append("\n");
-                }
-                text = sb.toString();
+                text = formParserService.extractText(new File(filePath));
             } catch (IOException e) {
-                throw new RuntimeException("PDF 이미지 변환 실패", e);
+                throw new RuntimeException("Excel 텍스트 추출 실패", e);
             }
+        } else if (isPdf) {
+            try {
+                text = pdfParserService.extractText(new File(filePath));
+            } catch (IOException e) {
+                throw new RuntimeException("PDF 텍스트 추출 실패", e);
+            }
+
+            // PDF에 한해 텍스트가 너무 짧으면 이미지 기반으로 보고 Vision API 사용
+            if (pdfParserService.isImageBasedPdf(text)) {
+                byte[] pdfBytes;
+                try {
+                    pdfBytes = Files.readAllBytes(Paths.get(filePath));
+                } catch (IOException e) {
+                    throw new RuntimeException("PDF 파일 읽기 실패", e);
+                }
+                log.info("이미지 기반 PDF 감지 - Vision API로 처리합니다. policyId={}", policy.getId());
+                try {
+                    List<String> pageImages = pdfParserService.extractPageImagesAsBase64(pdfBytes);
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < pageImages.size(); i++) {
+                        log.info("페이지 {}/{} Vision 처리 중...", i + 1, pageImages.size());
+                        sb.append(policyAiService.extractTextFromImage(pageImages.get(i)));
+                        sb.append("\n");
+                    }
+                    text = sb.toString();
+                } catch (IOException e) {
+                    throw new RuntimeException("PDF 이미지 변환 실패", e);
+                }
+            }
+        } else {
+            throw new IllegalArgumentException("지원하지 않는 규정 문서 형식입니다 (PDF, XLSX, XLS만 가능): " + filePath);
         }
 
         // 5. 청킹 + 임베딩 + 벡터 저장
