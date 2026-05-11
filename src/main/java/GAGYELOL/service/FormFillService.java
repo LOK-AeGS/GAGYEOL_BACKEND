@@ -28,21 +28,33 @@ public class FormFillService {
      * (backward compatibility - 이미지 없이 텍스트 필드만 채움)
      */
     public byte[] fill(String filePath, Map<String, String> allFields) throws IOException {
-        return fill(filePath, allFields, Collections.emptyMap());
+        return fill(filePath, allFields, Collections.emptyMap(), Collections.emptySet());
     }
 
     /**
-     * 핵심 진입점 - 텍스트 필드와 이미지 필드를 함께 채웁니다.
+     * Backward-compat 오버로드 - generatedFields 정보 없이 호출하는 기존 코드용.
      */
     public byte[] fill(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes) throws IOException {
+        return fill(filePath, allFields, imageFieldsBytes, Collections.emptySet());
+    }
+
+    /**
+     * 핵심 진입점 - 텍스트 필드, 이미지 필드, 그리고 LLM 생성(분할 금지) 필드 정보를 함께 받음.
+     * generatedFields에 포함된 필드는 XLSX에서 ", "로 분리하지 않고 단일 값으로 처리 → 자연어 문장 보호.
+     */
+    public byte[] fill(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes,
+                       java.util.Set<String> generatedFields) throws IOException {
         if (imageFieldsBytes == null) {
             imageFieldsBytes = Collections.emptyMap();
+        }
+        if (generatedFields == null) {
+            generatedFields = Collections.emptySet();
         }
         String lower = filePath.toLowerCase();
         if (lower.endsWith(".docx")) {
             return fillDocx(filePath, allFields, imageFieldsBytes);
         } else if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-            return fillXlsx(filePath, allFields, imageFieldsBytes);
+            return fillXlsx(filePath, allFields, imageFieldsBytes, generatedFields);
         } else {
             throw new IllegalArgumentException("지원하지 않는 양식 파일 형식: " + filePath);
         }
@@ -381,7 +393,8 @@ public class FormFillService {
         return result;
     }
 
-    private byte[] fillXlsx(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes) throws IOException {
+    private byte[] fillXlsx(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes,
+                             java.util.Set<String> generatedFields) throws IOException {
         try (FileInputStream fis = new FileInputStream(filePath);
              Workbook workbook = WorkbookFactory.create(fis)) {
 
@@ -398,34 +411,38 @@ public class FormFillService {
                             String value = entry.getValue();
                             if (!cellText.contains(field)) continue;
 
-                            Cell rightCell = row.getCell(ci + 1);
-                            boolean rightAvailable = rightCell == null || rightCell.getCellType() == CellType.BLANK;
+                            // 값 기반 결정: 표 데이터(다중 짧은 토큰)인지 단일 값인지.
+                            // generatedFields에 명시된 필드(LLM 생성 자연어)는 절대 분할 안 함.
+                            // 양식 레이아웃(오른쪽 셀 비어있는지)으로 분기하면 "| 번호 |   | 날짜 |" 처럼
+                            // 헤더 사이에 빈 데이터 칸이 있는 표 양식에서 통문자열이 한 셀에 들어가는 버그가 있음.
+                            List<String> rowValues = generatedFields.contains(field)
+                                    ? Collections.singletonList(value)
+                                    : splitMultiRowValue(value);
 
-                            if (rightAvailable) {
-                                // 레이블-값 구조(예: "지출인 성명" | (빈 셀)): 오른쪽에 단일 값 기입
-                                if (rightCell == null) rightCell = row.createCell(ci + 1);
-                                rightCell.setCellValue(value);
-                                log.debug("XLSX 필드 채우기(오른쪽): {} = {}", field, value);
-                            } else {
-                                // 테이블 헤더 구조(예: | 번호 | 날짜 | ...): 아래쪽으로 펼침
-                                // IE가 행별 값을 ", "로 이어서 한 문자열로 반환하는 경우(3개 이상) 분할해서 행별로 기입
-                                List<String> rowValues = splitMultiRowValue(value);
+                            if (rowValues.size() >= MULTIROW_MIN_PARTS) {
+                                // 표 헤더 아래로 펼침
                                 int startRow = row.getRowNum() + 1;
-                                if (rowValues.size() >= MULTIROW_MIN_PARTS) {
-                                    for (int j = 0; j < rowValues.size(); j++) {
-                                        String v = rowValues.get(j);
-                                        if (v.isEmpty()) continue; // 중간에 누락된 행은 그대로 비워둠
-                                        Row targetRow = sheet.getRow(startRow + j);
-                                        if (targetRow == null) targetRow = sheet.createRow(startRow + j);
-                                        Cell target = targetRow.getCell(ci);
-                                        if (target == null) target = targetRow.createCell(ci);
-                                        else if (target.getCellType() != CellType.BLANK) continue; // 이미 다른 데이터/수식 → 덮어쓰지 않음
-                                        target.setCellValue(v);
-                                    }
-                                    log.debug("XLSX 필드 채우기(다중행, {}개): {}", rowValues.size(), field);
+                                for (int j = 0; j < rowValues.size(); j++) {
+                                    String v = rowValues.get(j);
+                                    if (v.isEmpty()) continue; // 중간 누락 행은 그대로 비워둠 → 행 정렬 유지
+                                    Row targetRow = sheet.getRow(startRow + j);
+                                    if (targetRow == null) targetRow = sheet.createRow(startRow + j);
+                                    Cell target = targetRow.getCell(ci);
+                                    if (target == null) target = targetRow.createCell(ci);
+                                    else if (target.getCellType() != CellType.BLANK) continue; // 기존 데이터/수식 보존
+                                    target.setCellValue(v);
+                                }
+                                log.debug("XLSX 필드 채우기(다중행, {}개): {}", rowValues.size(), field);
+                            } else {
+                                // 단일 값: 오른쪽 빈 셀 우선, 아니면 아래 빈 셀
+                                Cell rightCell = row.getCell(ci + 1);
+                                if (rightCell == null || rightCell.getCellType() == CellType.BLANK) {
+                                    if (rightCell == null) rightCell = row.createCell(ci + 1);
+                                    rightCell.setCellValue(value);
+                                    log.debug("XLSX 필드 채우기(오른쪽): {} = {}", field, value);
                                 } else {
-                                    Row nextRow = sheet.getRow(startRow);
-                                    if (nextRow == null) nextRow = sheet.createRow(startRow);
+                                    Row nextRow = sheet.getRow(row.getRowNum() + 1);
+                                    if (nextRow == null) nextRow = sheet.createRow(row.getRowNum() + 1);
                                     Cell belowCell = nextRow.getCell(ci);
                                     if (belowCell == null || belowCell.getCellType() == CellType.BLANK) {
                                         if (belowCell == null) belowCell = nextRow.createCell(ci);
