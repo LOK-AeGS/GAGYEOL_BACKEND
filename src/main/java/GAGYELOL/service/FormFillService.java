@@ -7,6 +7,10 @@ import org.apache.poi.util.Units;
 import org.apache.poi.xwpf.usermodel.*;
 import org.springframework.stereotype.Service;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
@@ -145,14 +149,11 @@ public class FormFillService {
     private void insertDocxImages(XWPFDocument doc, Map<String, byte[]> imageFieldsBytes) {
         for (Map.Entry<String, byte[]> imgEntry : imageFieldsBytes.entrySet()) {
             String fieldName = imgEntry.getKey();
-            byte[] imageBytes = imgEntry.getValue();
+            byte[] imageBytes = normalizeToPng(imgEntry.getValue(), fieldName);
             if (imageBytes == null || imageBytes.length == 0) continue;
 
             String normalizedField = normalize(fieldName);
-            int pictureType = detectPictureType(imageBytes);
-            int docxPicType = (pictureType == Workbook.PICTURE_TYPE_PNG)
-                    ? XWPFDocument.PICTURE_TYPE_PNG
-                    : XWPFDocument.PICTURE_TYPE_JPEG;
+            int docxPicType = XWPFDocument.PICTURE_TYPE_PNG;
 
             boolean inserted = false;
             for (XWPFTable table : doc.getTables()) {
@@ -364,12 +365,11 @@ public class FormFillService {
 
         for (Map.Entry<String, byte[]> imgEntry : imageFieldsBytes.entrySet()) {
             String fieldName = imgEntry.getKey();
-            byte[] imageBytes = imgEntry.getValue();
+            byte[] imageBytes = normalizeToPng(imgEntry.getValue(), fieldName);
             if (imageBytes == null || imageBytes.length == 0) continue;
 
             String normalizedField = normalize(fieldName);
-            int pictureType = detectPictureType(imageBytes);
-            int pictureIndex = workbook.addPicture(imageBytes, pictureType);
+            int pictureIndex = workbook.addPicture(imageBytes, Workbook.PICTURE_TYPE_PNG);
 
             boolean inserted = false;
             for (int si = 0; si < workbook.getNumberOfSheets() && !inserted; si++) {
@@ -410,24 +410,41 @@ public class FormFillService {
     }
 
     /**
-     * 매직 바이트로 이미지 타입을 감지합니다.
-     * - JPEG: 0xFF 0xD8
-     * - PNG : 0x89 0x50 0x4E 0x47
-     * 기본값은 JPEG입니다. (DOCX/XLSX 공통 상수 - PICTURE_TYPE_JPEG=5, PICTURE_TYPE_PNG=6)
+     * 입력 이미지 바이트를 ImageIO로 디코딩 후 PNG로 재인코딩합니다.
+     * JPEG/PNG/GIF/BMP/WBMP는 JDK 기본 지원, WebP는 TwelveMonkeys SPI로 지원.
+     * 알파 채널이 있는 경우 흰 배경에 합성하여 양식지 출력에서 검게 보이지 않도록 합니다.
+     * 디코딩 실패 시(미지원 포맷) 원본 바이트를 그대로 반환 — 다운스트림에서 실패하지만 호출자 흐름은 유지.
      */
-    private int detectPictureType(byte[] imageBytes) {
-        if (imageBytes != null && imageBytes.length >= 4) {
-            int b0 = imageBytes[0] & 0xFF;
-            int b1 = imageBytes[1] & 0xFF;
-            int b2 = imageBytes[2] & 0xFF;
-            int b3 = imageBytes[3] & 0xFF;
-            if (b0 == 0x89 && b1 == 0x50 && b2 == 0x4E && b3 == 0x47) {
-                return Workbook.PICTURE_TYPE_PNG;
+    private byte[] normalizeToPng(byte[] imageBytes, String fieldName) {
+        if (imageBytes == null || imageBytes.length == 0) return imageBytes;
+        try {
+            BufferedImage src;
+            try (ByteArrayInputStream bis = new ByteArrayInputStream(imageBytes)) {
+                src = ImageIO.read(bis);
             }
-            if (b0 == 0xFF && b1 == 0xD8) {
-                return Workbook.PICTURE_TYPE_JPEG;
+            if (src == null) {
+                log.warn("이미지 디코딩 실패(미지원 포맷일 수 있음) - field={}, bytes={}", fieldName, imageBytes.length);
+                return imageBytes;
             }
+            BufferedImage rgb = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = rgb.createGraphics();
+            try {
+                g.setColor(Color.WHITE);
+                g.fillRect(0, 0, rgb.getWidth(), rgb.getHeight());
+                g.drawImage(src, 0, 0, null);
+            } finally {
+                g.dispose();
+            }
+            try (ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+                if (!ImageIO.write(rgb, "png", bos)) {
+                    log.warn("PNG writer를 찾지 못함 - field={}", fieldName);
+                    return imageBytes;
+                }
+                return bos.toByteArray();
+            }
+        } catch (IOException e) {
+            log.warn("이미지 정규화 실패, 원본 사용 - field={}: {}", fieldName, e.getMessage());
+            return imageBytes;
         }
-        return Workbook.PICTURE_TYPE_JPEG;
     }
 }
