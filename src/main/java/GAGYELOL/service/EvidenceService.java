@@ -64,6 +64,29 @@ public class EvidenceService {
     private static final int TOP_K = 5;
 
     @Transactional(readOnly = true)
+    public List<GAGYELOL.dto.EvidenceListResponse> listByGroup(Long groupId) {
+        if (groupId == null) return List.of();
+        UserGroup group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new IllegalArgumentException("그룹을 찾을 수 없습니다: " + groupId));
+        return evidenceRepository.findByGroupOrderByCreatedAtDesc(group).stream()
+                .map(e -> {
+                    var approval = approvalRequestRepository.findFirstByEvidenceOrderByCreatedAtDesc(e);
+                    String status = approval.map(a -> a.getStatus().toLowerCase()).orElse("draft");
+                    java.time.LocalDateTime updatedAt = approval
+                            .map(a -> a.getUpdatedAt() != null ? a.getUpdatedAt() : e.getCreatedAt())
+                            .orElse(e.getCreatedAt());
+                    return GAGYELOL.dto.EvidenceListResponse.builder()
+                            .evidenceId(e.getId())
+                            .businessName(e.getBusinessName())
+                            .status(status)
+                            .totalAmount(null)
+                            .updatedAt(updatedAt)
+                            .build();
+                })
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<EvidenceResponse> getByGroup(Long groupId) {
         if (groupId == null) return List.of();
         UserGroup group = groupRepository.findById(groupId)

@@ -19,6 +19,7 @@ public interface ApprovalRequestRepository extends JpaRepository<ApprovalRequest
     List<ApprovalRequest> findByRequesterOrderByCreatedAtDesc(User requester);
     List<ApprovalRequest> findByGroupAndStatus(UserGroup group, String status);
     long countByEvidence(Evidence evidence);
+    Optional<ApprovalRequest> findFirstByEvidenceOrderByCreatedAtDesc(Evidence evidence);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM ApprovalRequest r WHERE r.id = :id")
