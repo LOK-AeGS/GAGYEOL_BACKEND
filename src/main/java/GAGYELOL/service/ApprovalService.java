@@ -387,9 +387,11 @@ public class ApprovalService {
         List<ApprovalStep> steps = stepRepository.findByRequest(request);
         Map<String, String> fields = fromJson(request.getFilledFields());
 
+        String businessName = request.getEvidence() != null ? request.getEvidence().getBusinessName() : null;
         return ApprovalResponse.builder()
                 .requestId(request.getId())
                 .status(request.getStatus())
+                .businessName(businessName)
                 .currentApprovalOrder(request.getCurrentApprovalOrder())
                 .filledFields(fields)
                 .steps(steps.stream()
