@@ -59,12 +59,12 @@ public class FormService {
         String filePath = saveFile(file);
         log.info("양식지 파일 저장 완료: {}", filePath);
 
-        // 2. DOCX 텍스트 추출
+        // 2. 양식지 텍스트 추출
         String text;
         try {
             text = formParserService.extractText(new File(filePath));
         } catch (IOException e) {
-            throw new RuntimeException("DOCX 텍스트 추출 실패", e);
+            throw new RuntimeException("양식지 텍스트 추출 실패", e);
         }
         log.info("텍스트 추출 완료 - {}자", text.length());
 
@@ -289,6 +289,10 @@ public class FormService {
     }
 
     private String saveFile(MultipartFile file) {
+        String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename().toLowerCase() : "";
+        if (!originalFilename.endsWith(".docx") && !originalFilename.endsWith(".xlsx") && !originalFilename.endsWith(".xls")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 파일 형식입니다. (.docx, .xlsx, .xls만 허용)");
+        }
         try {
             Path dirPath = Paths.get(uploadDir);
             Files.createDirectories(dirPath);
