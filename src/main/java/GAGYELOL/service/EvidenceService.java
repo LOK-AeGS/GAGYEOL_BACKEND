@@ -64,7 +64,7 @@ public class EvidenceService {
     private static final int TOP_K = 5;
 
     @Transactional(readOnly = true)
-    public List<GAGYELOL.dto.EvidenceListResponse> listByGroup(Long groupId) {
+    public List<GAGYELOL.dto.EvidenceListResponse> listByGroup(Long groupId, String statusFilter) {
         if (groupId == null) return List.of();
         UserGroup group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new IllegalArgumentException("그룹을 찾을 수 없습니다: " + groupId));
@@ -78,12 +78,28 @@ public class EvidenceService {
                     return GAGYELOL.dto.EvidenceListResponse.builder()
                             .evidenceId(e.getId())
                             .businessName(e.getBusinessName())
+                            .title(e.getBusinessName())
                             .status(status)
                             .totalAmount(null)
+                            .itemCount(null)
+                            .fileType(resolveFileType(e.getFileName()))
+                            .createdAt(e.getCreatedAt())
                             .updatedAt(updatedAt)
                             .build();
                 })
+                .filter(r -> statusFilter == null || statusFilter.equalsIgnoreCase(r.getStatus()))
                 .toList();
+    }
+
+    private String resolveFileType(String fileName) {
+        if (fileName == null) return null;
+        String lower = fileName.toLowerCase();
+        if (lower.endsWith(".pdf"))  return "PDF";
+        if (lower.endsWith(".docx")) return "DOCX";
+        if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) return "XLSX";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "JPG";
+        if (lower.endsWith(".png"))  return "PNG";
+        return null;
     }
 
     @Transactional(readOnly = true)

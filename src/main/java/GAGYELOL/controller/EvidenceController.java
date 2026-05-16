@@ -34,9 +34,10 @@ public class EvidenceController {
 
     @GetMapping("/list")
     public ResponseEntity<List<EvidenceListResponse>> list(
-            @RequestParam Long groupId
+            @RequestParam Long groupId,
+            @RequestParam(required = false) String status
     ) {
-        return ResponseEntity.ok(evidenceService.listByGroup(groupId));
+        return ResponseEntity.ok(evidenceService.listByGroup(groupId, status));
     }
 
     @GetMapping("/{evidenceId}")
