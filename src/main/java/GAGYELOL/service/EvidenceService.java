@@ -188,14 +188,17 @@ public class EvidenceService {
                     List<String> fields = List.of();
                     try { fields = objectMapper.readValue(f.getFormFields(), new TypeReference<>() {}); }
                     catch (Exception ignored) {}
+                    double score = f.getPaymentType().equalsIgnoreCase(paymentType) ? 1.0 : 0.8;
                     return EvidenceAnalysisResponse.FormSummary.builder()
                             .formId(f.getId())
                             .formName(f.getFormName())
                             .description(f.getDescription())
                             .paymentType(f.getPaymentType())
                             .fields(fields)
+                            .matchScore(score)
                             .build();
                 })
+                .sorted(Comparator.comparingDouble(EvidenceAnalysisResponse.FormSummary::getMatchScore).reversed())
                 .toList();
 
         return EvidenceAnalysisResponse.builder()

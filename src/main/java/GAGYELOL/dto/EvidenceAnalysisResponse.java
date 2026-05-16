@@ -21,5 +21,6 @@ public class EvidenceAnalysisResponse {
         private String description;
         private String paymentType;
         private List<String> fields;
+        private double matchScore; // 0.0~1.0: 결제유형 정확 일치 1.0, BOTH 범용 0.8
     }
 }
