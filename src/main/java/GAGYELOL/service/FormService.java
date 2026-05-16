@@ -210,7 +210,28 @@ public class FormService {
         return toResponse(form);
     }
 
-    // ── 3. 양식지 삭제 ───────────────────────────────────────────────────────
+    // ── 3. 양식지 이름 수정 ──────────────────────────────────────────────────
+    public FormUploadResponse updateFormName(Long formId, Long userId, String formName) {
+        Form form = formRepository.findById(formId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "양식지를 찾을 수 없습니다."));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
+
+        if (form.getGroup() == null) {
+            if (!form.getUser().getId().equals(userId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "접근 권한이 없습니다.");
+            }
+        } else {
+            if (!groupMemberRepository.existsByGroupAndUser(form.getGroup(), user)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "해당 그룹의 멤버가 아닙니다.");
+            }
+        }
+
+        form.updateFormName(formName);
+        return toResponse(form);
+    }
+
+    // ── 4. 양식지 삭제 ───────────────────────────────────────────────────────
     public void deleteForm(Long formId, Long userId) {
         Form form = formRepository.findById(formId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "양식지를 찾을 수 없습니다."));

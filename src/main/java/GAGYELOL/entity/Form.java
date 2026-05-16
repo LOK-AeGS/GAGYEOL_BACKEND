@@ -48,6 +48,10 @@ public class Form {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    public void updateFormName(String formName) {
+        this.formName = formName;
+    }
+
     public void updateAnalysis(String description, String formFields, String generatedFields) {
         this.description = description;
         this.formFields = formFields;

@@ -68,7 +68,18 @@ public class FormController {
                 .body(Map.of("error", e.getReason() != null ? e.getReason() : e.getMessage()));
     }
 
-    // 3. 양식지 삭제
+    // 3. 양식지 이름 수정
+    @PutMapping("/{id}")
+    public ResponseEntity<FormUploadResponse> updateFormName(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, String> body
+    ) {
+        Long userId = jwtUtil.extractUserId(token.replace("Bearer ", ""));
+        return ResponseEntity.ok(formService.updateFormName(id, userId, body.get("formName")));
+    }
+
+    // 4. 양식지 삭제
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteForm(
             @RequestHeader("Authorization") String token,
