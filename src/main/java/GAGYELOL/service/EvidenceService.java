@@ -190,8 +190,11 @@ public class EvidenceService {
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
         if (lower.endsWith(".png"))  return "image/png";
         if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".gif"))  return "image/gif";
+        if (lower.endsWith(".bmp"))  return "image/bmp";
         if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
         if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (lower.endsWith(".xls"))  return "application/vnd.ms-excel";
         if (lower.endsWith(".hwp"))  return "application/x-hwp";
         if (lower.endsWith(".hwpx")) return "application/hwpx";
         throw new IllegalArgumentException("지원하지 않는 파일 형식입니다: " + fileName);
@@ -357,24 +360,41 @@ public class EvidenceService {
         List<CompleteFormRequest.FormInput> formInputs = request.getForms();
 
         if (formInputs.size() == 1) {
-            return generateSingleFile(formInputs.get(0));
+            return generateSingleFile(evidence, formInputs.get(0));
         }
-        return generateZip(formInputs);
+        return generateZip(evidence, formInputs);
     }
 
-    private byte[] generateSingleFile(CompleteFormRequest.FormInput input) {
+    /**
+     * 단일 파일 생성 시 사용할 출력 파일명을 반환합니다. (Controller에서 Content-Disposition 헤더에 사용)
+     */
+    public String resolveOutputFilename(CompleteFormRequest request) {
+        if (request.getForms().size() > 1) return "completed_forms.zip";
+        Long formId = request.getForms().get(0).getFormId();
+        Form form = formRepository.findById(formId).orElse(null);
+        if (form == null) return "completed_form.docx";
+        String lower = form.getFilePath().toLowerCase();
+        if (lower.endsWith(".xlsx")) return "completed_form.xlsx";
+        if (lower.endsWith(".xls"))  return "completed_form.xls";
+        return "completed_form.docx";
+    }
+
+    private byte[] generateSingleFile(Evidence evidence, CompleteFormRequest.FormInput input) {
         Form form = formRepository.findById(input.getFormId())
                 .orElseThrow(() -> new IllegalArgumentException("양식지를 찾을 수 없습니다: " + input.getFormId()));
         Map<String, String> allFields = mergeFields(input);
-        log.info("양식지 최종 완성 - formId={}, 필드 수={}", form.getId(), allFields.size());
+        Map<String, byte[]> imageBytesMap = resolveImageBytes(evidence, input.getImageFields());
+        Set<String> generatedFields = parseGeneratedFields(form);
+        log.info("양식지 최종 완성 - formId={}, 필드 수={}, 이미지 수={}, generatedFields={}",
+                form.getId(), allFields.size(), imageBytesMap.size(), generatedFields);
         try {
-            return formFillService.fill(form.getFilePath(), allFields);
+            return formFillService.fill(form.getFilePath(), allFields, imageBytesMap, generatedFields);
         } catch (IOException e) {
             throw new RuntimeException("양식지 파일 생성 실패: " + e.getMessage(), e);
         }
     }
 
-    private byte[] generateZip(List<CompleteFormRequest.FormInput> formInputs) {
+    private byte[] generateZip(Evidence evidence, List<CompleteFormRequest.FormInput> formInputs) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
              ZipOutputStream zip = new ZipOutputStream(baos)) {
 
@@ -382,7 +402,9 @@ public class EvidenceService {
                 Form form = formRepository.findById(input.getFormId())
                         .orElseThrow(() -> new IllegalArgumentException("양식지를 찾을 수 없습니다: " + input.getFormId()));
                 Map<String, String> allFields = mergeFields(input);
-                byte[] fileBytes = formFillService.fill(form.getFilePath(), allFields);
+                Map<String, byte[]> imageBytesMap = resolveImageBytes(evidence, input.getImageFields());
+                Set<String> generatedFields = parseGeneratedFields(form);
+                byte[] fileBytes = formFillService.fill(form.getFilePath(), allFields, imageBytesMap, generatedFields);
 
                 String ext = form.getFilePath().substring(form.getFilePath().lastIndexOf('.'));
                 zip.putNextEntry(new ZipEntry(form.getFormName() + ext));
@@ -395,6 +417,41 @@ public class EvidenceService {
         } catch (IOException e) {
             throw new RuntimeException("ZIP 생성 실패: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * imageFields 맵의 값("evidence", "recipientImage", 또는 파일 경로)을 실제 이미지 바이트로 변환합니다.
+     * 이미지 타입이 아닌 증빙서류(DOCX, XLSX 등)는 "evidence" 소스에서 제외됩니다.
+     */
+    private Map<String, byte[]> resolveImageBytes(Evidence evidence, Map<String, String> imageFields) {
+        if (imageFields == null || imageFields.isEmpty()) return Map.of();
+        Map<String, byte[]> result = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : imageFields.entrySet()) {
+            String fieldName = entry.getKey();
+            String source = entry.getValue();
+            if (source == null || source.isBlank()) continue;
+            try {
+                byte[] bytes = null;
+                if ("evidence".equalsIgnoreCase(source)) {
+                    String mimeType = resolveMimeType(evidence.getFileName());
+                    if (mimeType.startsWith("image/")) {
+                        bytes = Files.readAllBytes(Paths.get(evidence.getFilePath()));
+                    } else {
+                        log.warn("증빙서류가 이미지 형식이 아니므로 '{}' 필드 이미지로 사용 불가: {}", fieldName, evidence.getFileName());
+                    }
+                } else if ("recipientImage".equalsIgnoreCase(source)) {
+                    if (evidence.getRecipientImagePath() != null) {
+                        bytes = Files.readAllBytes(Paths.get(evidence.getRecipientImagePath()));
+                    }
+                } else {
+                    bytes = Files.readAllBytes(Paths.get(source));
+                }
+                if (bytes != null) result.put(fieldName, bytes);
+            } catch (IOException e) {
+                log.warn("이미지 파일 읽기 실패 - field={}, source={}: {}", fieldName, source, e.getMessage());
+            }
+        }
+        return result;
     }
 
     private Map<String, String> mergeFields(CompleteFormRequest.FormInput input) {
@@ -424,6 +481,18 @@ public class EvidenceService {
             return yy + "/" + mm + "/" + dd;
         }
         return value;
+    }
+
+    private Set<String> parseGeneratedFields(Form form) {
+        String raw = form.getGeneratedFields();
+        if (raw == null || raw.isBlank()) return Collections.emptySet();
+        try {
+            List<String> list = objectMapper.readValue(raw, new TypeReference<>() {});
+            return new HashSet<>(list);
+        } catch (Exception e) {
+            log.warn("Form {}의 generatedFields 파싱 실패, 빈 set으로 진행: {}", form.getId(), e.getMessage());
+            return Collections.emptySet();
+        }
     }
 
     private String resolvePayerField(String field, UserGroup group) {

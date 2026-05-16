@@ -1,16 +1,23 @@
 package GAGYELOL.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.util.Units;
 import org.apache.poi.xwpf.usermodel.*;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTc;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTcPr;
 import org.springframework.stereotype.Service;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -20,13 +27,36 @@ public class FormFillService {
 
     /**
      * 파일 확장자에 따라 DOCX 또는 XLSX 채우기를 호출합니다.
+     * (backward compatibility - 이미지 없이 텍스트 필드만 채움)
      */
     public byte[] fill(String filePath, Map<String, String> allFields) throws IOException {
+        return fill(filePath, allFields, Collections.emptyMap(), Collections.emptySet());
+    }
+
+    /**
+     * Backward-compat 오버로드 - generatedFields 정보 없이 호출하는 기존 코드용.
+     */
+    public byte[] fill(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes) throws IOException {
+        return fill(filePath, allFields, imageFieldsBytes, Collections.emptySet());
+    }
+
+    /**
+     * 핵심 진입점 - 텍스트 필드, 이미지 필드, 그리고 LLM 생성(분할 금지) 필드 정보를 함께 받음.
+     * generatedFields에 포함된 필드는 XLSX에서 ", "로 분리하지 않고 단일 값으로 처리 → 자연어 문장 보호.
+     */
+    public byte[] fill(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes,
+                       java.util.Set<String> generatedFields) throws IOException {
+        if (imageFieldsBytes == null) {
+            imageFieldsBytes = Collections.emptyMap();
+        }
+        if (generatedFields == null) {
+            generatedFields = Collections.emptySet();
+        }
         String lower = filePath.toLowerCase();
         if (lower.endsWith(".docx")) {
-            return fillDocx(filePath, allFields);
+            return fillDocx(filePath, allFields, imageFieldsBytes);
         } else if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-            return fillXlsx(filePath, allFields);
+            return fillXlsx(filePath, allFields, imageFieldsBytes, generatedFields);
         } else {
             throw new IllegalArgumentException("지원하지 않는 양식 파일 형식: " + filePath);
         }
@@ -35,7 +65,7 @@ public class FormFillService {
     /**
      * DOCX 파일의 테이블 셀과 단락에서 필드명을 탐색하여 인접 빈 셀/다음 줄에 값을 채웁니다.
      */
-    private byte[] fillDocx(String filePath, Map<String, String> allFields) throws IOException {
+    private byte[] fillDocx(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes) throws IOException {
         try (FileInputStream fis = new FileInputStream(filePath);
              XWPFDocument doc = new XWPFDocument(fis)) {
 
@@ -115,9 +145,139 @@ public class FormFillService {
                 }
             }
 
+            // 이미지 필드 삽입 - 텍스트 채우기 완료 후 별도 단계로 실행
+            if (!imageFieldsBytes.isEmpty()) {
+                insertDocxImages(doc, imageFieldsBytes);
+            }
+
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             doc.write(out);
             return out.toByteArray();
+        }
+    }
+
+    /**
+     * DOCX 테이블에서 이미지 플레이스홀더 셀을 찾아 이미지를 삽입합니다.
+     * 매칭 우선순위:
+     *   1) 셀 텍스트가 필드명과 정확히 일치 → 오른쪽 인접 빈 셀에 삽입
+     *   2) 셀 텍스트가 필드명을 포함하거나 그 반대(예: 셀 "학생증 부착(...)" ⊃ 필드 "학생증")
+     *   3) 필드명이 이미지성 키워드(사진/이미지/학생증/영수증)이고 셀이 "부착"/"사진"/"이미지" 포함
+     * 2)·3)의 경우 인접 빈 셀이 없으면 매칭된 셀 자체에 새 단락으로 이미지 추가(레이블 텍스트는 유지).
+     * 같은 셀에 두 번 삽입하지 않도록 추적합니다.
+     */
+    private void insertDocxImages(XWPFDocument doc, Map<String, byte[]> imageFieldsBytes) {
+        java.util.Set<XWPFTableCell> usedCells = new java.util.HashSet<>();
+
+        for (Map.Entry<String, byte[]> imgEntry : imageFieldsBytes.entrySet()) {
+            String fieldName = imgEntry.getKey();
+            byte[] imageBytes = normalizeToPng(imgEntry.getValue(), fieldName);
+            if (imageBytes == null || imageBytes.length == 0) continue;
+
+            int docxPicType = XWPFDocument.PICTURE_TYPE_PNG;
+
+            boolean inserted = insertDocxImageInMatchingCell(doc, fieldName, imageBytes, docxPicType, usedCells);
+            if (!inserted) {
+                log.warn("DOCX 이미지 플레이스홀더를 찾지 못함: {}", fieldName);
+            }
+        }
+    }
+
+    private boolean insertDocxImageInMatchingCell(XWPFDocument doc, String fieldName, byte[] imageBytes,
+                                                   int docxPicType, java.util.Set<XWPFTableCell> usedCells) {
+        String normalizedField = normalize(fieldName);
+
+        // Pass 1: 정확 일치 → 오른쪽 빈 셀에 삽입 (전통적 2열 레이블/값 구조)
+        for (XWPFTable table : doc.getTables()) {
+            for (XWPFTableRow row : table.getRows()) {
+                List<XWPFTableCell> cells = row.getTableCells();
+                for (int i = 0; i < cells.size(); i++) {
+                    XWPFTableCell labelCell = cells.get(i);
+                    if (usedCells.contains(labelCell)) continue;
+                    String cellText = labelCell.getText().trim();
+                    if (cellText.isEmpty()) continue;
+                    if (!normalize(cellText).equals(normalizedField)) continue;
+
+                    if (i + 1 < cells.size()) {
+                        XWPFTableCell next = cells.get(i + 1);
+                        if (next.getText().trim().isEmpty() && !usedCells.contains(next)) {
+                            if (addPictureToCell(next, fieldName, imageBytes, docxPicType, true)) {
+                                usedCells.add(next);
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Pass 2a: 구체적 매칭 — 셀이 필드명을 포함하거나 반대
+        // (예: 필드 "영수증" → 셀 "영수증 부착(...)" 우선 매칭; 같은 행의 "학생증 부착(...)"은 키워드만 일치하므로 후순위)
+        for (XWPFTable table : doc.getTables()) {
+            for (XWPFTableRow row : table.getRows()) {
+                for (XWPFTableCell cell : row.getTableCells()) {
+                    if (usedCells.contains(cell)) continue;
+                    String cellTextRaw = cell.getText().trim();
+                    if (cellTextRaw.isEmpty()) continue;
+                    String cellText = normalize(cellTextRaw);
+                    if (!cellText.contains(normalizedField) && !normalizedField.contains(cellText)) continue;
+
+                    if (addPictureToCell(cell, fieldName, imageBytes, docxPicType, false)) {
+                        usedCells.add(cell);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Pass 2b: 키워드 폴백 — 필드명이 이미지성(사진/이미지/학생증/영수증)이고
+        // 셀에 부착/사진/이미지 키워드가 있을 때. "사진" 같은 제너릭 필드명 대응.
+        boolean fieldIsImageish = isImageishLabel(normalizedField);
+        if (fieldIsImageish) {
+            for (XWPFTable table : doc.getTables()) {
+                for (XWPFTableRow row : table.getRows()) {
+                    for (XWPFTableCell cell : row.getTableCells()) {
+                        if (usedCells.contains(cell)) continue;
+                        String cellTextRaw = cell.getText().trim();
+                        if (cellTextRaw.isEmpty()) continue;
+                        String cellText = normalize(cellTextRaw);
+                        if (!cellText.contains("부착") && !cellText.contains("사진") && !cellText.contains("이미지")) continue;
+
+                        if (addPictureToCell(cell, fieldName, imageBytes, docxPicType, false)) {
+                            usedCells.add(cell);
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isImageishLabel(String normalizedField) {
+        return normalizedField.contains("사진") || normalizedField.contains("이미지")
+                || normalizedField.contains("학생증") || normalizedField.contains("영수증");
+    }
+
+    private boolean addPictureToCell(XWPFTableCell cell, String fieldName, byte[] imageBytes,
+                                      int docxPicType, boolean reuseFirstParagraph) {
+        try {
+            XWPFParagraph para;
+            if (reuseFirstParagraph) {
+                para = cell.getParagraphs().isEmpty() ? cell.addParagraph() : cell.getParagraphs().get(0);
+            } else {
+                // 레이블 텍스트 유지하고 새 단락에 이미지 추가
+                para = cell.addParagraph();
+            }
+            XWPFRun run = para.createRun();
+            try (ByteArrayInputStream imgStream = new ByteArrayInputStream(imageBytes)) {
+                run.addPicture(imgStream, docxPicType, fieldName,
+                        Units.toEMU(150), Units.toEMU(190));
+            }
+            log.info("DOCX 이미지 삽입 완료: {} ({} bytes)", fieldName, imageBytes.length);
+            return true;
+        } catch (InvalidFormatException | IOException e) {
+            log.warn("DOCX 이미지 삽입 실패: {} - {}", fieldName, e.getMessage());
+            return false;
         }
     }
 
@@ -144,7 +304,7 @@ public class FormFillService {
 
     private String normalize(String text) {
         return text
-                .replace(' ', ' ')  // non-breaking space
+                .replace(' ', ' ')  // non-breaking space
                 .replace('＆', '&')       // full-width ampersand
                 .replace("&amp;", "&")
                 .replaceAll("\\s+", " ")
@@ -230,11 +390,42 @@ public class FormFillService {
     }
 
     /**
-     * XLSX 파일에서 필드명이 포함된 셀을 탐색하여 인접 빈 셀에 값을 채웁니다.
+     * XLSX/XLS 파일에서 필드명이 포함된 셀을 탐색하여 인접 빈 셀에 값을 채웁니다.
+     * WorkbookFactory를 사용하여 XLS(구버전 바이너리)도 지원합니다.
      */
-    private byte[] fillXlsx(String filePath, Map<String, String> allFields) throws IOException {
+    /**
+     * IE가 행별 데이터를 한 셀에 ", "(콤마+공백)로 이어 반환하는 형태를 행 단위 리스트로 분리.
+     * - 값 내부의 천 단위 콤마(예: "9,000")는 공백이 없어 보존됨.
+     * - 자연어 문장(생성된 "내용" 등) 보호: 각 토큰이 짧을 때만 다중행으로 인식.
+     * - 빈 토큰("16,000, , 9,000" 형태의 누락된 행)도 보존해서 행 정렬 유지.
+     * - 다중행으로 판단되지 않으면 원본을 단일 원소 리스트로 반환.
+     */
+    private static final int MULTIROW_MIN_PARTS = 3;
+    private static final int MULTIROW_MAX_TOKEN_LEN = 30;
+
+    private java.util.List<String> splitMultiRowValue(String value) {
+        if (value == null) return java.util.Collections.emptyList();
+        String[] parts = value.split(",\\s+");
+        if (parts.length < MULTIROW_MIN_PARTS) {
+            return java.util.Collections.singletonList(value);
+        }
+        // 자연어 문장 보호: 한 토큰이라도 너무 길면 표 데이터가 아니라고 판단
+        for (String p : parts) {
+            if (p.trim().length() > MULTIROW_MAX_TOKEN_LEN) {
+                return java.util.Collections.singletonList(value);
+            }
+        }
+        java.util.List<String> result = new java.util.ArrayList<>(parts.length);
+        for (String p : parts) {
+            result.add(p.trim());
+        }
+        return result;
+    }
+
+    private byte[] fillXlsx(String filePath, Map<String, String> allFields, Map<String, byte[]> imageFieldsBytes,
+                             java.util.Set<String> generatedFields) throws IOException {
         try (FileInputStream fis = new FileInputStream(filePath);
-             Workbook workbook = new XSSFWorkbook(fis)) {
+             Workbook workbook = WorkbookFactory.create(fis)) {
 
             for (int si = 0; si < workbook.getNumberOfSheets(); si++) {
                 Sheet sheet = workbook.getSheetAt(si);
@@ -247,8 +438,32 @@ public class FormFillService {
                         for (Map.Entry<String, String> entry : allFields.entrySet()) {
                             String field = entry.getKey();
                             String value = entry.getValue();
-                            if (cellText.contains(field)) {
-                                // 오른쪽 빈 셀 우선 채우기, 이미 차 있으면 아래 셀 시도
+                            if (!cellText.contains(field)) continue;
+
+                            // 값 기반 결정: 표 데이터(다중 짧은 토큰)인지 단일 값인지.
+                            // generatedFields에 명시된 필드(LLM 생성 자연어)는 절대 분할 안 함.
+                            // 양식 레이아웃(오른쪽 셀 비어있는지)으로 분기하면 "| 번호 |   | 날짜 |" 처럼
+                            // 헤더 사이에 빈 데이터 칸이 있는 표 양식에서 통문자열이 한 셀에 들어가는 버그가 있음.
+                            List<String> rowValues = generatedFields.contains(field)
+                                    ? Collections.singletonList(value)
+                                    : splitMultiRowValue(value);
+
+                            if (rowValues.size() >= MULTIROW_MIN_PARTS) {
+                                // 표 헤더 아래로 펼침
+                                int startRow = row.getRowNum() + 1;
+                                for (int j = 0; j < rowValues.size(); j++) {
+                                    String v = rowValues.get(j);
+                                    if (v.isEmpty()) continue; // 중간 누락 행은 그대로 비워둠 → 행 정렬 유지
+                                    Row targetRow = sheet.getRow(startRow + j);
+                                    if (targetRow == null) targetRow = sheet.createRow(startRow + j);
+                                    Cell target = targetRow.getCell(ci);
+                                    if (target == null) target = targetRow.createCell(ci);
+                                    else if (target.getCellType() != CellType.BLANK) continue; // 기존 데이터/수식 보존
+                                    target.setCellValue(v);
+                                }
+                                log.debug("XLSX 필드 채우기(다중행, {}개): {}", rowValues.size(), field);
+                            } else {
+                                // 단일 값: 오른쪽 빈 셀 우선, 아니면 아래 빈 셀
                                 Cell rightCell = row.getCell(ci + 1);
                                 if (rightCell == null || rightCell.getCellType() == CellType.BLANK) {
                                     if (rightCell == null) rightCell = row.createCell(ci + 1);
@@ -256,13 +471,12 @@ public class FormFillService {
                                     log.debug("XLSX 필드 채우기(오른쪽): {} = {}", field, value);
                                 } else {
                                     Row nextRow = sheet.getRow(row.getRowNum() + 1);
-                                    if (nextRow != null) {
-                                        Cell belowCell = nextRow.getCell(ci);
-                                        if (belowCell == null || belowCell.getCellType() == CellType.BLANK) {
-                                            if (belowCell == null) belowCell = nextRow.createCell(ci);
-                                            belowCell.setCellValue(value);
-                                            log.debug("XLSX 필드 채우기(아래): {} = {}", field, value);
-                                        }
+                                    if (nextRow == null) nextRow = sheet.createRow(row.getRowNum() + 1);
+                                    Cell belowCell = nextRow.getCell(ci);
+                                    if (belowCell == null || belowCell.getCellType() == CellType.BLANK) {
+                                        if (belowCell == null) belowCell = nextRow.createCell(ci);
+                                        belowCell.setCellValue(value);
+                                        log.debug("XLSX 필드 채우기(아래): {} = {}", field, value);
                                     }
                                 }
                             }
@@ -271,9 +485,174 @@ public class FormFillService {
                 }
             }
 
+            // 이미지 필드 삽입 - 텍스트 채우기 완료 후 별도 단계로 실행
+            if (!imageFieldsBytes.isEmpty()) {
+                insertXlsxImages(workbook, imageFieldsBytes);
+            }
+
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             workbook.write(out);
             return out.toByteArray();
+        }
+    }
+
+    /**
+     * XLSX/XLS 시트에서 이미지 플레이스홀더 셀을 찾아 인접 영역에 이미지를 삽입합니다.
+     * DOCX와 동일한 매칭 정책:
+     *   1) 정확 일치 → 오른쪽 인접 영역에 앵커
+     *   2) 부분 일치(셀⊃필드 or 필드⊃셀)
+     *   3) 필드가 이미지성이고 셀이 "부착/사진/이미지" 키워드 포함 → 같은 셀 위치에 앵커
+     */
+    private void insertXlsxImages(Workbook workbook, Map<String, byte[]> imageFieldsBytes) {
+        CreationHelper helper = workbook.getCreationHelper();
+        java.util.Set<String> usedCellKeys = new java.util.HashSet<>();
+
+        for (Map.Entry<String, byte[]> imgEntry : imageFieldsBytes.entrySet()) {
+            String fieldName = imgEntry.getKey();
+            byte[] imageBytes = normalizeToPng(imgEntry.getValue(), fieldName);
+            if (imageBytes == null || imageBytes.length == 0) continue;
+
+            String normalizedField = normalize(fieldName);
+            boolean fieldIsImageish = isImageishLabel(normalizedField);
+            int pictureIndex = workbook.addPicture(imageBytes, Workbook.PICTURE_TYPE_PNG);
+
+            boolean inserted = false;
+            // Pass 1: 정확 일치
+            for (int si = 0; si < workbook.getNumberOfSheets() && !inserted; si++) {
+                Sheet sheet = workbook.getSheetAt(si);
+                for (Row row : sheet) {
+                    if (inserted) break;
+                    short last = row.getLastCellNum();
+                    for (int ci = 0; ci < last; ci++) {
+                        Cell cell = row.getCell(ci);
+                        if (cell == null || cell.getCellType() != CellType.STRING) continue;
+                        String cellText = cell.getStringCellValue().trim();
+                        if (cellText.isEmpty()) continue;
+                        String key = si + ":" + row.getRowNum() + ":" + ci;
+                        if (usedCellKeys.contains(key)) continue;
+                        if (!normalize(cellText).equals(normalizedField)) continue;
+
+                        if (anchorPicture(sheet, helper, pictureIndex, row.getRowNum(), ci, fieldName, imageBytes.length, true)) {
+                            usedCellKeys.add(key);
+                            inserted = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            // Pass 2a: 구체적 매칭 — 셀이 필드명을 포함하거나 반대
+            for (int si = 0; si < workbook.getNumberOfSheets() && !inserted; si++) {
+                Sheet sheet = workbook.getSheetAt(si);
+                for (Row row : sheet) {
+                    if (inserted) break;
+                    short last = row.getLastCellNum();
+                    for (int ci = 0; ci < last; ci++) {
+                        Cell cell = row.getCell(ci);
+                        if (cell == null || cell.getCellType() != CellType.STRING) continue;
+                        String cellTextRaw = cell.getStringCellValue().trim();
+                        if (cellTextRaw.isEmpty()) continue;
+                        String key = si + ":" + row.getRowNum() + ":" + ci;
+                        if (usedCellKeys.contains(key)) continue;
+                        String cellText = normalize(cellTextRaw);
+
+                        if (!cellText.contains(normalizedField) && !normalizedField.contains(cellText)) continue;
+
+                        if (anchorPicture(sheet, helper, pictureIndex, row.getRowNum(), ci, fieldName, imageBytes.length, false)) {
+                            usedCellKeys.add(key);
+                            inserted = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            // Pass 2b: 키워드 폴백 — 필드가 이미지성이고 셀에 부착/사진/이미지 키워드
+            for (int si = 0; si < workbook.getNumberOfSheets() && !inserted && fieldIsImageish; si++) {
+                Sheet sheet = workbook.getSheetAt(si);
+                for (Row row : sheet) {
+                    if (inserted) break;
+                    short last = row.getLastCellNum();
+                    for (int ci = 0; ci < last; ci++) {
+                        Cell cell = row.getCell(ci);
+                        if (cell == null || cell.getCellType() != CellType.STRING) continue;
+                        String cellTextRaw = cell.getStringCellValue().trim();
+                        if (cellTextRaw.isEmpty()) continue;
+                        String key = si + ":" + row.getRowNum() + ":" + ci;
+                        if (usedCellKeys.contains(key)) continue;
+                        String cellText = normalize(cellTextRaw);
+
+                        if (!cellText.contains("부착") && !cellText.contains("사진") && !cellText.contains("이미지")) continue;
+
+                        if (anchorPicture(sheet, helper, pictureIndex, row.getRowNum(), ci, fieldName, imageBytes.length, false)) {
+                            usedCellKeys.add(key);
+                            inserted = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!inserted) {
+                log.warn("XLSX 이미지 플레이스홀더를 찾지 못함: {}", fieldName);
+            }
+        }
+    }
+
+    private boolean anchorPicture(Sheet sheet, CreationHelper helper, int pictureIndex,
+                                   int labelRow, int labelCol, String fieldName, int byteLen,
+                                   boolean anchorToRight) {
+        try {
+            Drawing<?> drawing = sheet.createDrawingPatriarch();
+            ClientAnchor anchor = helper.createClientAnchor();
+            int col1 = anchorToRight ? labelCol + 1 : labelCol;
+            anchor.setCol1(col1);
+            anchor.setRow1(labelRow);
+            anchor.setCol2(col1 + 2);
+            anchor.setRow2(labelRow + 4);
+            drawing.createPicture(anchor, pictureIndex);
+            log.info("XLSX 이미지 삽입 완료: {} ({} bytes)", fieldName, byteLen);
+            return true;
+        } catch (Exception e) {
+            log.warn("XLSX 이미지 삽입 실패: {} - {}", fieldName, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 입력 이미지 바이트를 ImageIO로 디코딩 후 PNG로 재인코딩합니다.
+     * JPEG/PNG/GIF/BMP/WBMP는 JDK 기본 지원, WebP는 TwelveMonkeys SPI로 지원.
+     * 알파 채널이 있는 경우 흰 배경에 합성하여 양식지 출력에서 검게 보이지 않도록 합니다.
+     * 디코딩 실패 시(미지원 포맷) 원본 바이트를 그대로 반환 — 다운스트림에서 실패하지만 호출자 흐름은 유지.
+     */
+    private byte[] normalizeToPng(byte[] imageBytes, String fieldName) {
+        if (imageBytes == null || imageBytes.length == 0) return imageBytes;
+        try {
+            BufferedImage src;
+            try (ByteArrayInputStream bis = new ByteArrayInputStream(imageBytes)) {
+                src = ImageIO.read(bis);
+            }
+            if (src == null) {
+                log.warn("이미지 디코딩 실패(미지원 포맷일 수 있음) - field={}, bytes={}", fieldName, imageBytes.length);
+                return imageBytes;
+            }
+            BufferedImage rgb = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = rgb.createGraphics();
+            try {
+                g.setColor(Color.WHITE);
+                g.fillRect(0, 0, rgb.getWidth(), rgb.getHeight());
+                g.drawImage(src, 0, 0, null);
+            } finally {
+                g.dispose();
+            }
+            try (ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+                if (!ImageIO.write(rgb, "png", bos)) {
+                    log.warn("PNG writer를 찾지 못함 - field={}", fieldName);
+                    return imageBytes;
+                }
+                return bos.toByteArray();
+            }
+        } catch (IOException e) {
+            log.warn("이미지 정규화 실패, 원본 사용 - field={}: {}", fieldName, e.getMessage());
+            return imageBytes;
         }
     }
 }

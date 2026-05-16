@@ -167,7 +167,7 @@ details summary { cursor: pointer; color: #3498db; }
         <div class="form-row"><label>그룹</label><select id="formGroupSelect"></select></div>
         <div class="form-row"><label>양식명</label><input id="formName" type="text" placeholder="예: 지출결의서"></div>
         <div class="form-row"><label>결제유형</label><select id="formPaymentType"><option value="BOTH">BOTH</option><option value="CARD">CARD</option><option value="CASH">CASH</option></select></div>
-        <div class="form-row"><label>파일</label><input id="formFile" type="file" accept=".docx,.xlsx"></div>
+        <div class="form-row"><label>파일</label><input id="formFile" type="file" accept=".docx,.xlsx,.xls"></div>
         <div class="muted" style="margin:4px 0 8px 88px">※ 양식지 목록/삭제 엔드포인트는 파트 B에서 구현 예정입니다.</div>
         <div class="form-row"><button class="primary" onclick="uploadForm()">업로드</button></div>
       </div>
@@ -616,8 +616,12 @@ async function downloadFinal() {
     });
     const blob = await res.blob();
     const cd = res.headers.get('Content-Disposition') || '';
-    const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
-    const fname = m ? decodeURIComponent(m[1]) : 'completed.docx';
+    // RFC 5987 filename*=UTF-8''... 우선, 없으면 filename="..."
+    const mStar = cd.match(/filename\*=UTF-8''([^;]+)/i);
+    const mPlain = cd.match(/filename="?([^";]+)"?/i);
+    const fname = mStar ? decodeURIComponent(mStar[1])
+                : mPlain ? mPlain[1]
+                : 'completed.bin';
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = fname; a.click();
     URL.revokeObjectURL(url);
