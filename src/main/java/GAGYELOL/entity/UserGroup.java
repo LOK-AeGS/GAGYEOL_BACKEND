@@ -32,6 +32,9 @@ public class UserGroup {
     @JoinColumn(name = "active_policy_id")
     private Policy activePolicy;
 
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
     @Column(name = "payer_name", length = 100)
     private String payerName;
 

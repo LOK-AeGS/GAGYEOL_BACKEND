@@ -32,6 +32,7 @@ public class GroupService {
 
         UserGroup group = groupRepository.save(UserGroup.builder()
                 .name(request.getName())
+                .description(request.getDescription())
                 .inviteCode(generateInviteCode())
                 .owner(owner)
                 .build());
@@ -239,6 +240,7 @@ public class GroupService {
         return GroupResponse.builder()
                 .groupId(group.getId())
                 .name(group.getName())
+                .description(group.getDescription())
                 .inviteCode(group.getInviteCode())
                 .ownerName(group.getOwner().getName())
                 .payerInfo(payerInfo)

@@ -267,7 +267,8 @@ public class EvidenceService {
             for (String field : remainingAfterPayer) {
                 if (generatedFieldSet.contains(field)) {
                     if (businessName != null && !businessName.isBlank()) {
-                        String content = formAiService.generateFieldContent(businessName, field);
+                        String groupDescription = (group != null) ? group.getDescription() : null;
+                        String content = formAiService.generateFieldContent(businessName, groupDescription, field);
                         filledFields.put(field, content);
                         log.info("LLM 생성 필드: {} = {}", field, content);
                     } else {
