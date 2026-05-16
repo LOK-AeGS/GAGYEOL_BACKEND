@@ -3,6 +3,7 @@ package GAGYELOL.controller;
 import GAGYELOL.config.JwtUtil;
 import GAGYELOL.dto.CompleteFormRequest;
 import GAGYELOL.dto.EvidenceAnalysisResponse;
+import GAGYELOL.dto.EvidenceListResponse;
 import GAGYELOL.dto.EvidenceResponse;
 import GAGYELOL.dto.FillFieldsRequest;
 import GAGYELOL.dto.FillFieldsResponse;
@@ -29,6 +30,13 @@ public class EvidenceController {
     @GetMapping
     public ResponseEntity<List<EvidenceResponse>> listByGroup(@RequestParam(required = false) Long groupId) {
         return ResponseEntity.ok(evidenceService.getByGroup(groupId));
+    }
+
+    @GetMapping("/list")
+    public ResponseEntity<List<EvidenceListResponse>> list(
+            @RequestParam Long groupId
+    ) {
+        return ResponseEntity.ok(evidenceService.listByGroup(groupId));
     }
 
     @GetMapping("/{evidenceId}")
