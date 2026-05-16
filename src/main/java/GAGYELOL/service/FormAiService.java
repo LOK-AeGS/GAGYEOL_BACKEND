@@ -55,14 +55,16 @@ public class FormAiService {
     /**
      * 사업명을 바탕으로 특정 필드의 서술형 내용을 생성합니다.
      */
-    public String generateFieldContent(String businessName, String fieldName) {
+    public String generateFieldContent(String businessName, String description, String fieldName) {
+        String descLine = (description != null && !description.isBlank())
+                ? "사업 설명: " + description + "\n\n"
+                : "";
         String prompt = String.format("""
                 사업명: %s
-
-                위 사업명을 바탕으로 공문서 양식의 '%s' 항목에 들어갈 내용을 작성해주세요.
+                %s위 사업의 공문서 양식에서 '%s' 항목에 들어갈 내용을 작성해주세요.
                 간결하고 공식적인 문체로 2~3문장 이내로 작성하세요.
                 내용만 반환하고, 다른 설명은 붙이지 마세요.
-                """, businessName, fieldName);
+                """, businessName, descLine, fieldName);
 
         log.info("사업명 기반 필드 생성 요청 - businessName={}, field={}", businessName, fieldName);
         return openAiClient.chat(prompt, false, 0.7);

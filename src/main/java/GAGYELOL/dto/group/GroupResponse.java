@@ -10,6 +10,7 @@ import java.util.List;
 public class GroupResponse {
     private Long groupId;
     private String name;
+    private String description;
     private String inviteCode;
     private String ownerName;
     private List<RoleSummary> roles;
