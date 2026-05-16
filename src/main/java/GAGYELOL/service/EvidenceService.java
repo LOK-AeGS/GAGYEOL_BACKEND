@@ -33,6 +33,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -399,7 +401,29 @@ public class EvidenceService {
         Map<String, String> allFields = new LinkedHashMap<>();
         if (input.getFilledFields() != null) allFields.putAll(input.getFilledFields());
         if (input.getUserInputFields() != null) allFields.putAll(input.getUserInputFields());
+        allFields.replaceAll((key, value) -> key.contains("날짜") ? normalizeDateValue(value) : value);
         return allFields;
+    }
+
+    private String normalizeDateValue(String value) {
+        if (value == null || value.isBlank()) return value;
+        Pattern full = Pattern.compile("(\\d{4})[-/.](\\d{1,2})[-/.](\\d{1,2})");
+        Matcher m = full.matcher(value);
+        if (m.find()) {
+            String yy = m.group(1).substring(2);
+            String mm = String.format("%02d", Integer.parseInt(m.group(2)));
+            String dd = String.format("%02d", Integer.parseInt(m.group(3)));
+            return yy + "/" + mm + "/" + dd;
+        }
+        Pattern korean = Pattern.compile("(\\d{4})년\\s*(\\d{1,2})월\\s*(\\d{1,2})일");
+        m = korean.matcher(value);
+        if (m.find()) {
+            String yy = m.group(1).substring(2);
+            String mm = String.format("%02d", Integer.parseInt(m.group(2)));
+            String dd = String.format("%02d", Integer.parseInt(m.group(3)));
+            return yy + "/" + mm + "/" + dd;
+        }
+        return value;
     }
 
     private String resolvePayerField(String field, UserGroup group) {

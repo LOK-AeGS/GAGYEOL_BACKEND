@@ -4,6 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xwpf.usermodel.*;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTc;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTcPr;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
@@ -184,6 +186,7 @@ public class FormFillService {
 
     // 셀의 모든 단락·run을 비우고 첫 run에만 값을 씀 (여러 단락으로 된 레이블 셀 교체용)
     private void clearCellText(XWPFTableCell cell, String value) {
+        enableWordWrap(cell);
         boolean valueSet = false;
         for (XWPFParagraph para : cell.getParagraphs()) {
             for (int j = 0; j < para.getRuns().size(); j++) {
@@ -205,6 +208,7 @@ public class FormFillService {
     }
 
     private void setCellText(XWPFTableCell cell, String value) {
+        enableWordWrap(cell);
         if (cell.getParagraphs().isEmpty()) {
             cell.addParagraph().createRun().setText(value);
         } else {
@@ -214,6 +218,14 @@ public class FormFillService {
             } else {
                 para.getRuns().get(0).setText(value, 0);
             }
+        }
+    }
+
+    private void enableWordWrap(XWPFTableCell cell) {
+        CTTc ctTc = cell.getCTTc();
+        CTTcPr tcPr = ctTc.isSetTcPr() ? ctTc.getTcPr() : ctTc.addNewTcPr();
+        if (tcPr.isSetNoWrap()) {
+            tcPr.unsetNoWrap();
         }
     }
 
