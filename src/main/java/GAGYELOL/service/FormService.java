@@ -78,17 +78,20 @@ public class FormService {
         String description = "";
         String formFields = "[]";
         String generatedFields = "[]";
+        String aiPaymentType = null;
         try {
             JsonNode node = objectMapper.readTree(analysisJson);
             description = node.path("description").asText();
+            aiPaymentType = node.has("paymentType") ? node.path("paymentType").asText() : null;
             formFields = node.path("fields").toString();
             generatedFields = node.has("generatedFields") ? node.path("generatedFields").toString() : "[]";
         } catch (Exception e) {
             log.warn("양식지 분석 결과 파싱 실패, 원본 저장: {}", e.getMessage());
         }
 
-        // 4. Form 저장
-        String normalizedType = normalizePaymentType(paymentType);
+        // 4. Form 저장 (AI 분류 우선, 없으면 요청 파라미터 사용)
+        String normalizedType = normalizePaymentType(aiPaymentType != null ? aiPaymentType : paymentType);
+        log.info("결제유형 분류 - AI={}, 최종={}", aiPaymentType, normalizedType);
         Form form = formRepository.save(Form.builder()
                 .user(user)
                 .group(group)
@@ -142,16 +145,20 @@ public class FormService {
         String description = form.getDescription();
         String formFields = "[]";
         String generatedFields = "[]";
+        String aiPaymentType = null;
         try {
             JsonNode node = objectMapper.readTree(analysisJson);
             description = node.path("description").asText();
+            aiPaymentType = node.has("paymentType") ? node.path("paymentType").asText() : null;
             formFields = node.path("fields").toString();
             generatedFields = node.has("generatedFields") ? node.path("generatedFields").toString() : "[]";
         } catch (Exception e) {
             log.warn("재분석 결과 파싱 실패: {}", e.getMessage());
         }
 
-        form.updateAnalysis(description, formFields, generatedFields);
+        String normalizedType = normalizePaymentType(aiPaymentType != null ? aiPaymentType : form.getPaymentType());
+        log.info("재분석 결제유형 분류 - AI={}, 최종={}", aiPaymentType, normalizedType);
+        form.updateAnalysis(description, normalizedType, formFields, generatedFields);
 
         List<String> fieldList = List.of();
         List<String> generatedFieldList = List.of();
