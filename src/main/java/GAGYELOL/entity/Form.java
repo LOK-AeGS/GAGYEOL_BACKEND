@@ -52,8 +52,9 @@ public class Form {
         this.formName = formName;
     }
 
-    public void updateAnalysis(String description, String formFields, String generatedFields) {
+    public void updateAnalysis(String description, String paymentType, String formFields, String generatedFields) {
         this.description = description;
+        this.paymentType = paymentType;
         this.formFields = formFields;
         this.generatedFields = generatedFields;
     }
